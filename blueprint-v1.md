@@ -1387,7 +1387,7 @@ Judgment stays with the Lead; arithmetic, schema, and comparison move into a sma
 | `freshness-flags` | hub root, `project-state.json` | flag list (brief as-of vs state, `stale_after` evaluation, reader provenance vs live state) | CYCLE_GATE brief refresh, director Q&A (§8.6–8.7) |
 | `smoke-roster` | repo root | per-role launch success + resolved model for all seven discoverable children | kickoff, Milestone 1 exit, post-upgrade re-verification |
 
-Shared wiring rules: tools live in one versioned location shared by all projects and take the project root as an argument; only `ledger advance` writes state, and only when Lead-invoked (serialized with hub mutations per §8.7); every invocation and result is recorded as evidence with the tool version; a tool failure, missing tool, or version mismatch holds the dependent gate exactly like a failed validator (§12.4).
+Shared wiring rules: tools live in one versioned location shared by all projects (`tools/research-ops/`, stdlib-only, no installs) and take the project root as an argument; only `ledger advance` writes state, and only when Lead-invoked (serialized with hub mutations per §8.7); every invocation and result is recorded as evidence with the tool version; a tool failure, missing tool, or version mismatch holds the dependent gate exactly like a failed validator (§12.4). Implemented: `ledger.py` with `get` (via `show`), `advance`, `termination-check`, `status`, `next`, `progress` + `project-state.schema.json` + 16 self-tests green; remaining §10.7 tools are spec'd, not yet built.
 
 ---
 
