@@ -3,6 +3,8 @@
 
 **Version:** 1.1 — Proposed Pi Subagents Architecture
 
+> Filename note: the file retains its historical `blueprint-draft-v1_0.md` name; the heading version above is authoritative.
+
 **Primary objective:** Build an autonomous, evidence-driven research system implemented by a Research Lead host prompt, a Research Advisor Pi subagent, and an Engineering Worker Pi subagent, using Pi's `pi-subagents` mechanism to convert a human-defined research direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report.
 
 ---
@@ -64,7 +66,7 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 **P5. Uncertainty-aware consultation.** The Lead assesses understanding and readiness before meaningful work. Unresolved uncertainty triggers Advisor consultation.
 
-**P6. Mandatory independent review.** Each loop exit (inner-loop exit, analysis/cycle-decision gate, plan gate) and the final report require Advisor assessment, even when the Lead reports high confidence. Individual inner-loop iterations use executable checks plus targeted consultation on triggers; they do not each require a full stage review.
+**P6. Mandatory independent review.** PLAN_GATE, INNER_EXIT_GATE, CYCLE_GATE, and REPORT_GATE each require an Advisor verdict, even when the Lead reports high confidence. Individual inner-loop iterations use per-attempt checks plus targeted consultation on triggers; they do not each require a gate review. Verdict/route/next-state combinations follow the authoritative table in §8.4.
 
 **P7. High-information consultation.** Advisor interactions use focused questions, decision-oriented briefs, and references to primary evidence rather than complete conversation histories.
 
@@ -148,7 +150,7 @@ The Research Lead host prompt defines the loop discipline (inner/outer loop rout
 
 Use a structured Advisor response contract and Pi structured output where appropriate; check the verdict and cited evidence rather than relying on free-form agreement. A valid schema or successful Advisor child run proves only response shape/run completion—not scientific correctness.
 
-This design intentionally relies on the host Research Lead to follow the mandatory lifecycle. `pi-subagents` does not enforce research-stage gates on direct host actions. If non-bypassable policy enforcement becomes a requirement, add a separately designed and tested Pi permission/policy extension; do not claim the two agent prompts alone provide hard enforcement.
+This design intentionally relies on the host Research Lead to follow the mandatory lifecycle. `pi-subagents` does not enforce research-stage gates on direct host actions. If non-bypassable policy enforcement becomes a requirement, add a separately designed and tested Pi permission/policy extension; do not claim the role prompts alone provide hard enforcement.
 
 ### 2.4 Agent separation
 
@@ -345,10 +347,12 @@ The Advisor should explain not only what is wrong, but why it matters and what e
 
 ### 4.4 Advisor decision contract
 
-Every mandatory review must return a structured decision.
+Every mandatory gate review must return a structured decision bound to the exact submission it assesses.
 
 ```json
 {
+  "gate": "PLAN_GATE | INNER_EXIT_GATE | CYCLE_GATE | REPORT_GATE",
+  "review_target": "artifact-manifest-id@version (what was actually inspected)",
   "verdict": "approve | revise | block | inconclusive",
   "summary": "Concise overall assessment",
   "findings": [
@@ -367,15 +371,20 @@ Every mandatory review must return a structured decision.
 }
 ```
 
-**Approve** means the artifact passes the defined review criteria, not that its claims are proven.
+**Verdict meanings (assessment of the submission, not a routing order).**
 
-**Revise** means corrections are required before proceeding.
+- **Approve** means the submission passes the gate rubric — not that its claims are proven.
+- **Revise** means corrections are required before the gate passes; the response must state them as `required_action` items.
+- **Block** means a fundamental methodological, safety, or validity problem was found; the response must say what would need to change for the work to continue responsibly.
+- **Inconclusive** means the Advisor lacks sufficient evidence to determine pass/fail; the response must name the missing evidence in `additional_evidence_required`.
 
-**Block** means there is a fundamental methodological, safety, or validity problem.
+**Verdicts do not route by themselves.** The Lead selects the route from the verdict plus the termination check, using only the legal combinations in the authoritative transition table (§8.4): `approve` enables the gate's forward route; `revise` returns to a named remediation state with a bounded re-review (default max 2 revise rounds per gate, then HOLD and escalate); `inconclusive` permits bounded evidence gathering plus one re-review, then HOLD if still unresolved — never a direct terminal stop; `block` pauses work into HOLD for triage, and only a confirmed-unresolvable blocker (or human decision) converts HOLD into terminal SUSPENDED.
 
-**Inconclusive** means the Advisor lacks sufficient evidence to make a defensible determination.
+**Fail-closed validation.** The Lead must validate every gate response before acting on it: parseable against the schema above, `gate` matching the gate actually invoked, and `review_target` matching the submitted manifest version. Any failure — malformed output, missing verdict, wrong gate, stale manifest — is a no-verdict: the Lead records it, issues a bounded re-request (default max 2), and HOLDs the gate; if re-requests are exhausted or the Advisor is unavailable, the Lead HOLDs and escalates to the human. Silence, an expired run, or a `complete` run status is never approval. A verdict is invalidated by any later implementation change to the files it covered; per-attempt checks re-validate, and interface/contract-level changes require a fresh gate review.
 
-For Pi, return this contract as schema-constrained structured output when configured, otherwise as the specified JSON response. The host Research Lead evaluates the Advisor's verdict and decides whether to proceed, revise, or stop. This is an instruction-level gate, not runtime enforcement; a separate Pi permission/policy extension would be required to make bypass impossible.
+**Bounded evidence expansion.** When the Advisor requests more evidence, the Lead supplies it in at most 2 expansion rounds per gate. A follow-up review — whether it resumes context or starts a fresh child — must carry the original rubric, the prior findings, and the same manifest version (or a new versioned manifest if evidence changed). Advisory consultations and mandatory gate verdicts are labeled differently in project records; advice never satisfies a gate unless the call explicitly applied the gate rubric to the submitted manifest.
+
+For Pi, return this contract as schema-constrained structured output when configured, otherwise as the specified JSON response. This gate is instruction-level, not runtime enforcement; a separate Pi permission/policy extension would be required to make bypass impossible.
 
 ### 4.5 Preventing superficial peer review
 
@@ -411,7 +420,7 @@ It does not eliminate correlated model failures, so independent tests and human 
 
 ### 5.1 Research lifecycle — dynamic dual-loop (non-deterministic)
 
-The research workflow is non-deterministic: the path through PLANNING, IMPLEMENTATION, EVALUATION, and ANALYSIS is decided at runtime from evidence, Advisor verdicts, loop counters, and the termination conditions. REPORTING is entered only when a termination condition fires; it is not a stage the Lead can advance to unilaterally. The Research Lead host agent owns all routing decisions. It delegates consultation and independent review to the `research-advisor` Pi subagent through the `subagent` tool; it is not launched as a subagent itself.
+The research workflow is non-deterministic: the path through PLANNING, IMPLEMENTATION, EVALUATION, and ANALYSIS is decided at runtime from evidence, Advisor verdicts, loop counters, and the termination conditions. REPORTING is entered only through the CYCLE_GATE `report` route; it is not a stage the Lead can advance to unilaterally. Gate names are canonical — PLAN_GATE, INNER_EXIT_GATE, CYCLE_GATE, REPORT_GATE — and the authoritative verdict/route/next-state table is §8.4; if any other section appears to disagree with it, §8.4 governs. The Research Lead host agent owns all routing decisions. It delegates consultation and independent review to the `research-advisor` Pi subagent through the `subagent` tool; it is not launched as a subagent itself.
 
 ```text
 Human request
@@ -419,7 +428,7 @@ Human request
      v
 Research Lead host session
      |
-  PLANNING ----------> Advisor plan-gate review
+  PLANNING ----------> PLAN_GATE (Advisor review)
      |
      v
   +---------------- OUTER CYCLE n (plan v_n) ----------------+
@@ -427,26 +436,33 @@ Research Lead host session
   |     iterate to best achievable outcome under plan v_n   |
   |     |
   |     v                                                    |
-  |  2. ANALYSIS + Advisor cycle review                     |
-  |     diagnose limitations of plan v_n vs. objective      |
+  |  2. INNER_EXIT_GATE (Advisor review of evidence package,|
+  |     complete or explicitly incomplete-for-diagnosis)    |
+  |     |
+  |     v                                                    |
+  |  3. ANALYSIS + CYCLE_GATE (Advisor-reviewed limitation  |
+  |     diagnosis, progress verdict, and route)             |
   |     |
   |     +-- objective achieved ---> REPORTING               |
-  |     +-- unsolvable blocker ----> SUSPEND + honest report |
-  |     +-- stagnation (outer budget spent, no progress) --->|
-  |             SUSPEND + honest report                     |
-  |     +-- otherwise -------------> re-PLAN (v_n+1)         |
+  |     +-- approved replan + budget remains ---> cycle n+1 |
+  |     +-- blocker / budget spent / early stagnation ------>|
+  |             HOLD triage -> SUSPENDED + status report    |
   +----------------------------------------------------------+
 ```
 
-**Inner loop — IMPLEMENTATION ⇄ EVALUATION.** Commits endeavor to achieve the best outcome under the current approved plan (plan v_n): build/fix, run smoke tests and evaluations, diagnose failures, and iterate. The Lead executes small or plan-sensitive changes itself and delegates bounded work packages to the Engineering Worker (scoped spec, explicit file paths, acceptance criteria, verification commands); every Worker result returns as observed evidence the Lead verifies before acceptance. The loop stays inside the plan; it does not change research questions, hypotheses, metrics, or validity criteria. A fix that requires changing the plan (new hypothesis, different baselines/metrics, relaxed success criteria) must exit to ANALYSIS instead of silently redefining success inside the loop.
+Two deliberately different pauses: **HOLD** is resumable (awaiting evidence, a bounded re-review, Worker rework, or a human decision); **SUSPENDED** is terminal and always produces a preserved-evidence status report — distinct from an approved final research report, which only COMPLETED produces.
+
+**Three check levels — do not confuse them.** (1) *Per-attempt checks* (tests, smoke evaluations) run inside the inner loop after every implementation change; they decide retry vs. exit, never approval. (2) *Implementation readiness* is the PLAN_GATE `approve` verdict covering plan v_n's implementation baseline; per-attempt fixes stay covered by it unless they touch the interfaces, contracts, or validity assumptions the approval rested on — such changes invalidate the approval and require a fresh PLAN_GATE review before full evaluation. (3) *INNER_EXIT_GATE* is the mandatory Advisor review that closes the inner loop. It admits two package kinds: a complete evidence package, or an explicitly incomplete/invalid package submitted **for diagnosis only** (attempt budget spent, or the fix would require a plan change). A diagnosis-only package may route to ANALYSIS; it may never support a success claim or a `report` route.
+
+**Inner loop — IMPLEMENTATION ⇄ EVALUATION.** Commits endeavor to achieve the best outcome under the current approved plan (plan v_n): build/fix, run smoke tests and evaluations, diagnose failures, and iterate. The Lead executes small or plan-sensitive changes itself and delegates bounded work packages to the Engineering Worker (scoped spec, explicit file paths, acceptance criteria, verification commands); every Worker result returns as observed evidence the Lead verifies before acceptance — and no Worker package may be dispatched until the Lead records READY for it (§8.3). The loop stays inside the plan; it does not change research questions, hypotheses, metrics, or validity criteria. A fix that requires changing the plan (new hypothesis, different baselines/metrics, relaxed success criteria) exits early to ANALYSIS with the evidence marked incomplete-for-diagnosis, instead of silently redefining success inside the loop.
 
 **Outer loop — [PLANNING → IMPLEMENTATION → EVALUATION] → ANALYSIS → [PLANNING → IMPLEMENTATION → EVALUATION].** Commits endeavor to improve or resolve limitations of the initial plan: each outer cycle (n = 1, 2, …) runs the current plan through implementation and evaluation, then ANALYSIS diagnoses what limited the outcome (method, baselines, data, metrics, scope, assumptions) and proposes plan v_{n+1}. Re-planning requires an explicit cycle decision plus Advisor review; the Lead must not start the next outer cycle on its own authority.
 
 **Termination conditions (checked at every ANALYSIS gate, and immediately when discovered):**
 
 1. **Objective achieved** — the approved success criteria are met with valid evidence and Advisor concurrence → enter REPORTING, then COMPLETED.
-2. **Unsolvable blocker** — a fundamental methodological, safety, resource, or validity problem with no responsible workaround (Advisor `block` verdict the Lead cannot remediate, missing authority/data, invalidated core assumption) → SUSPEND, preserve all evidence, and report honestly (including negative/inconclusive findings). Ask the human where human authority or input could unblock; do not downgrade the blocker into an implicit success.
-3. **Stagnation despite committed effort** — significant effort has been committed without noticeable positive progress. Quantification: a per-project outer-cycle budget of **3 to 5 outer cycles** (default 4, set in the research charter; the human may override within [3, 5]). Each ANALYSIS records a progress verdict (`advanced | marginal | stalled | regressed`) with evidence. When the budget is spent without the objective met — or progress is `stalled`/`regressed` across consecutive cycles with no credible new lever — the Lead stops looping, preserves everything, and reports the best-supported conclusion (including inconclusive), rather than running more cycles to manufacture a positive result.
+2. **Unsolvable blocker** — a fundamental methodological, safety, resource, or validity problem with no responsible workaround (Advisor `block` verdict the Lead cannot remediate, missing authority/data, invalidated core assumption) → HOLD immediately for triage (preserve evidence, ask the human where human authority could unblock); convert to SUSPENDED with an honest status report only when confirmed unresolvable or the human so decides. Never downgrade a blocker into an implicit success.
+3. **Stagnation despite committed effort** — significant effort has been committed without noticeable positive progress. Quantification: a per-project outer-cycle budget of **3 to 5 outer cycles** (default 4, set in the research charter; the human may override within [3, 5]). Each ANALYSIS records a progress verdict (`advanced | marginal | stalled | regressed`) with evidence. Precedence at CYCLE_GATE: check validated objective achievement **first** — a met objective reports even on the final allowed cycle; only then apply the cap. The cap prohibits authorizing cycle N+1 even when progress is `advanced`. Early stop: 2 consecutive `stalled`/`regressed` cycles with no credible new lever (charter-adjustable, default 2) also ends looping. Any stop for stagnation lands in SUSPENDED with the best-supported conclusion preserved (including inconclusive) — never extra cycles to manufacture a positive result.
 
 Before each meaningful task, the Lead assesses readiness. It investigates bounded factual/technical uncertainty directly, invokes the Advisor for material conceptual or methodological uncertainty, and asks the human when authority or essential information is missing.
 
@@ -465,18 +481,24 @@ Inner-loop iteration complete (tests + evaluation run)
     +-- fix stays within plan v_n -> next IMPLEMENTATION iteration
     +-- fix requires plan change -> exit to ANALYSIS (no silent redefinition)
 
-ANALYSIS + Advisor cycle review
+ANALYSIS + CYCLE_GATE review (Advisor: interpretation + limitation
+    diagnosis + progress verdict + route; see §8.4 table)
     |
-    +-- approve + objective met -> REPORTING
-    +-- revise within same plan -> bounded inner-loop remediation, Advisor re-review
-    +-- replan approved + outer budget remains -> next outer cycle (plan v_n+1)
-    +-- block / inconclusive / unsolvable / outer budget spent without progress
-            -> SUSPEND, preserve evidence, report honestly / escalate to human
+    +-- approve + objective met -> REPORTING (REPORT_GATE)
+    +-- revise -> bounded remediation in named state -> re-review
+    |       (default max 2 revise rounds per gate, then HOLD + escalate)
+    +-- replan route approved + outer budget remains -> PLAN_GATE for v_n+1
+    +-- inconclusive -> bounded evidence gathering + one re-review,
+    |       then HOLD if still unresolved
+    +-- block / newly discovered blocker -> HOLD triage immediately;
+    |       SUSPENDED + status report only if confirmed unresolvable
+    +-- outer cap reached without objective / early-stagnation rule fired
+            -> SUSPENDED + status report (best-supported conclusion)
 ```
 
-**Loop accounting (mandatory project state).** The Lead tracks `outer_cycle` (current plan version n), `inner_attempt` (iteration count within the cycle), per-cycle progress verdicts, Advisor verdicts at each gate, and the remaining outer-cycle budget. Inner-loop iterations do not increment the outer counter; only an approved re-plan starts cycle n+1. Cycle and attempt limits are set in the charter and tracked in `project-state.json` (see 8.3–8.4).
+**Loop accounting (mandatory project state).** The Lead tracks `outer_cycle` (current plan version n), `inner_attempt` (iteration count within the cycle), per-cycle progress verdicts, Advisor verdicts at each gate, and the remaining outer-cycle budget. Inner-loop iterations do not increment the outer counter; only a CYCLE_GATE-authorized replan starts cycle n+1. **Charging rules:** an outer cycle is charged when the replan is authorized — a plan gate that then fails still consumes the authorized cycle (no free retries); an inner attempt is charged when implementation changes are integrated into the cycle workspace, even if evaluation never completes (no-change interruptions are logged, not charged). Gate revise rounds (default max 2 per gate) and consultation retries (default max 2 per gate) have their own counters and never consume loop budget. Cycle and attempt limits are set in the charter and tracked in `project-state.json` (see 8.4–8.5).
 
-The Lead's host prompt and durable project records preserve lifecycle state across turns. `pi-subagents` manages the Advisor child run; it does not advance the research stage on the Lead's behalf or enforce the gate in application code.
+The Lead's host prompt and durable project records preserve lifecycle state across turns. `pi-subagents` manages Advisor and Worker child runs; it does not advance the research stage on the Lead's behalf or enforce the gate in application code.
 
 ### 5.2 Stage 1 — Research planning
 
@@ -526,7 +548,7 @@ Where practical, record the experiment protocol before observing the primary eva
 
 The Lead decomposes the approved methodology into bounded work packages and assigns them to the Engineering Worker (or implements plan-sensitive pieces itself). A package states the exact scope, allowed file paths, relevant specs, acceptance criteria, and the verification commands the Worker must run. The Worker edits only granted paths, never project plans, decisions, or review records. The Lead inspects the returned evidence (files changed, test commands with observed results), re-runs key checks where cheap, and accepts or rejects the work; acceptance is a Lead decision, never a Worker claim.
 
-The Lead should ensure each package covers:
+The Lead should decompose the stage into packages that together cover:
 1. Inspection of existing code, libraries, and datasets.
 2. Build or adapt experiment components.
 3. Implement reference baselines.
@@ -559,7 +581,7 @@ The Lead should ensure each package covers:
 - Can another researcher reproduce the execution?
 - Are observed test failures understood?
 
-**Gate:** Relevant tests must pass and the Advisor must accept the implementation as sufficiently ready for the planned evaluation.
+**Gate (PLAN_GATE readiness):** Relevant tests must pass and the Advisor must approve the implementation baseline as ready for the planned evaluation. This approval covers the baseline only: later per-attempt fixes stay covered unless they touch the interfaces, contracts, or validity assumptions the approval rested on, in which case the approval is invalid and a fresh PLAN_GATE review is required before full evaluation (see §8.4).
 
 Implementation approval does not establish that the scientific hypothesis is correct.
 
@@ -604,13 +626,13 @@ This stage is the EVALUATION half of the inner loop: failed or weak results rout
 - Have negative results been preserved?
 - Is the evidence package complete enough for ANALYSIS, or is another inner-loop iteration warranted?
 
-**Gate:** The evidence package must be complete and its integrity accepted (tests pass, provenance recorded) before ANALYSIS. Corrective implementation work routes back through the inner loop; plan changes are forbidden here — they require the ANALYSIS cycle decision.
+**Gate (INNER_EXIT_GATE):** The evidence package must be complete and its integrity accepted (tests pass, provenance recorded) — or explicitly marked incomplete-for-diagnosis — before ANALYSIS. Corrective implementation work routes back through the inner loop; plan changes are forbidden here — they require the CYCLE_GATE `replan` route (see §8.4).
 
 Do not modify a held-out evaluation set simply to obtain stronger results. Material protocol changes require a new experiment version and corresponding disclosure.
 
 ### 5.5 Stage 4 — Analysis (limitation diagnosis and cycle decision)
 
-**Objective:** Interpret the evaluated evidence, diagnose what limits the current plan, and make the explicit routing decision: report (objective achieved), suspend (blocker/stagnation), or re-plan the next outer cycle. This stage is the hinge of the outer loop.
+**Objective:** Interpret the evaluated evidence, diagnose what limits the current plan, and make the explicit routing decision: report (objective achieved), stop via HOLD/SUSPENDED (blocker/stagnation), or re-plan the next outer cycle. This stage is the hinge of the outer loop.
 
 The Lead should:
 
@@ -618,8 +640,8 @@ The Lead should:
 2. Assess which claims the evidence supports, qualifies, or rejects.
 3. Diagnose the binding limitation of plan v_n (method, baselines, data, metrics, scope, assumptions, budget).
 4. Judge progress for this outer cycle: `advanced | marginal | stalled | regressed`, with evidence (metric deltas, resolved vs. open limitations, Advisor findings).
-5. Propose the cycle decision: `report | replan | suspend`, including plan v_{n+1} changes if re-planning (hypothesis/method/metric/scope deltas and why they should break the limitation).
-6. Check the termination conditions: objective met → REPORTING; unsolvable blocker → SUSPEND; outer-cycle budget spent without objective met (or consecutive `stalled`/`regressed` cycles with no credible new lever) → SUSPEND with honest best-supported conclusion.
+5. Propose the cycle decision: `report | replan | hold | suspended`, including plan v_{n+1} changes if re-planning (hypothesis/method/metric/scope deltas and why they should break the limitation). Charter-level objectives and success criteria are out of scope for re-planning: changing them requires explicit human authorization, not a CYCLE_GATE verdict.
+6. Check the termination conditions: objective met → `report` route; unsolvable blocker → HOLD triage, SUSPENDED only if confirmed; outer-cycle budget spent without objective met (or consecutive `stalled`/`regressed` cycles with no credible new lever) → SUSPENDED with honest best-supported conclusion. Precedence and charging follow §5.1/§8.4.
 7. Record the decision, rationale, and evidence in `cycle-decision.json` before acting on it.
 
 **Required artifacts**
@@ -628,7 +650,7 @@ The Lead should:
 - Threats-to-validity analysis.
 - Limitation diagnosis for plan v_n.
 - Progress verdict with supporting evidence.
-- `cycle-decision.json` (`report | replan | suspend`, rationale, artifact/evidence refs, next-plan deltas if any).
+- `cycle-decision.json` (`report | replan | hold | suspended`, rationale, artifact/evidence refs, next-plan deltas if any).
 
 **Advisor review questions**
 
@@ -639,7 +661,7 @@ The Lead should:
 - Is the progress verdict honest given the metric deltas?
 - Has a termination condition fired (objective achieved / unsolvable blocker / stagnation)?
 
-**Gate:** No new outer cycle starts and no REPORTING begins without an Advisor-reviewed cycle decision: the Advisor must concur on (or correct) the interpretation, the limitation diagnosis, the progress verdict, and the route. `block`/`inconclusive` verdicts, unresolved critical findings, or a spent outer-cycle budget suspend looping. A `replan` approval authorizes cycle n+1 under the recorded plan deltas; the next cycle's PLAN gate then approves the revised protocol before implementation resumes.
+**Gate:** No new outer cycle starts and no REPORTING begins without an Advisor-reviewed cycle decision: the Advisor must concur on (or correct) the interpretation, the limitation diagnosis, the progress verdict, and the route (legal verdict/route combinations in §8.4). `block`/`inconclusive` verdicts, unresolved critical findings, or a spent outer-cycle budget produce HOLD triage, never a new cycle. A `replan` approval authorizes cycle n+1 under the recorded plan deltas; the next cycle's PLAN gate then approves the revised protocol before implementation resumes.
 
 ### 5.6 Stage 5 — Reporting
 
@@ -789,7 +811,7 @@ An initial budget of approximately 1,000–2,500 input tokens is a reasonable en
 
 The Advisor may request exact source passages, code sections, experimental records, or additional observations.
 
-This avoids paying to transmit large amounts of potentially irrelevant context while retaining the ability to investigate difficult problems deeply.
+This avoids paying to transmit large amounts of potentially irrelevant context while retaining the ability to investigate difficult problems deeply. Expansion is bounded per §4.4 (default max 2 rounds per gate, carrying the original rubric and prior findings); exceeding it HOLDs the gate rather than expanding indefinitely.
 
 **Important:** An arbitrary compression target must never override evidence sufficiency.
 
@@ -856,7 +878,7 @@ Use a simple consultation-priority policy.
 
 Mandatory reviews are never skipped for budget optimization.
 
-If budget is exhausted, suspend or narrow the research rather than silently removing required review.
+If budget is exhausted, HOLD or narrow the research scope rather than silently removing required review.
 
 ---
 
@@ -878,11 +900,13 @@ Keep the three role definitions separate from per-project research evidence:
 repository/
 ├── .pi/
 │   ├── agents/
-│   │   ├── research-lead/
-│   │   │   └── agent.md       # appended to the main Pi session
 │   │   ├── engineering-worker/
 │   │   │   └── agent.md       # discovered Pi subagent
-│   └── settings.json          # optional subagent discovery exclusion
+│   │   ├── research-advisor/
+│   │   │   └── agent.md       # discovered Pi subagent
+│   │   └── research-lead/
+│   │       └── agent.md       # appended to the main Pi session
+│   └── settings.json          # agent discovery + model overrides
 └── research-projects/<project-id>/
     ├── charter/
     │   ├── research-charter.md
@@ -898,8 +922,8 @@ repository/
     │   └── roadmap.md
     ├── implementation/{src,tests,configs}/
     ├── experiments/{manifests,raw-results,analysis}/
-    ├── reviews/{planning,implementation,evaluation,reporting}/
-    ├── decisions/decision-log.md
+    ├── reviews/{planning,implementation,evaluation,analysis,reporting}/
+    ├── decisions/{decision-log.md,cycle-decision.json}
     ├── reports/research-report.md
     ├── manifests/artifact-manifest.json
     └── project-state.json
@@ -968,7 +992,7 @@ The project record should track:
 - Worker assignments and their structured results (scope, files changed, observed test evidence, acceptance decision), including relevant Pi child run IDs.
 - Human decisions, unresolved findings, and project completion status.
 
-The Lead maintains this record. Stage approval refers to an immutable/versioned deliverable manifest; distinguish submitted artifacts from approved artifacts. A task is complete only when its acceptance criteria and verification evidence are recorded. An Advisor child run marked `complete` means only that the consultation settled; it does not mean the research is scientifically valid or accepted.
+The Lead maintains this record. Stage approval refers to an immutable/versioned deliverable manifest; distinguish submitted artifacts from approved artifacts. A task is complete only when its acceptance criteria and verification evidence are recorded. An Advisor child run marked `complete` means only that the consultation settled; it does not mean the research is scientifically valid or accepted. A Worker run marked `complete` means only that the assignment settled; acceptance is recorded separately by the Lead (§8.3).
 
 ### 8.2 Advisor consultation and stage review
 
@@ -976,40 +1000,99 @@ The Lead performs a structured readiness assessment for each meaningful task and
 
 Launch the Advisor directly through Pi Subagents with a focused task and fresh context. For example, the host can call `subagent` with `agent: "research-advisor"`, the consultation/review brief as `task`, and `options.context: "fresh"`. The Advisor receives the brief and its own allowed tools; it does not automatically inherit the host's conversation or system prompt. Supply artifact paths/IDs and ask it to inspect primary evidence. If a call runs in the background, the Lead must collect and inspect the completed result before relying on it.
 
-Use the Section 4.4 decision contract for reviews. Where appropriate, request Pi structured output with a matching schema and check the verdict and evidence references. A valid schema or successful child run proves only response shape/run completion—not that the claims are true. Record the consultation result in project decisions/reviews before proceeding.
+Use the Section 4.4 decision contract for gate reviews. Where appropriate, request Pi structured output with a matching schema and validate the verdict, gate name, and `review_target` manifest version as §4.4 requires; fail closed on any mismatch. A valid schema or successful child run proves only response shape/run completion—not that the claims are true. Record the consultation result in project decisions/reviews before proceeding. If the Advisor is unavailable (no run, error, or re-request budget exhausted), the gate HOLDs and the Lead escalates to the human — unavailability never counts as approval and never advances a gate.
 
-### 8.2b Engineering Worker assignment and acceptance
+### 8.3 Worker assignment and acceptance
 
-The Lead assigns each implementation package with an exact scope: allowed file paths, governing specs, acceptance criteria, verification commands, and a bounded attempt/deadline budget. Launch the Worker through Pi Subagents with `agent: "engineering-worker"`, the package as `task`, and a fresh context; the Worker inherits project context as configured but never the Lead's live reasoning. It edits only granted paths — never plans, decisions, reviews, or state records — and returns a structured result (work done, files changed with versions/hashes, each verification command with observed output, unresolved issues, or a bounded `BLOCKED`/`PARTIAL` result). The Lead inspects the result, re-runs key verification where cheap, and records `accepted` or `rejected` with rationale before the output enters the evidence base. A Worker run marked `complete` means only that the assignment settled; it does not mean the code is correct or the methodology satisfied. Never silently broaden a Worker's scope to fix a failure: re-scope explicitly, or route plan-level changes through ANALYSIS.
+No Worker package may be dispatched until the Lead records READY for it: scope expressible, target paths known, acceptance criteria and verification commands specified. INVESTIGATE/CONSULT/BLOCKED readiness outcomes loop back through reassessment — advisory guidance never substitutes for the gate rubric, and an underspecified package is never dispatched to "let the Worker figure it out."
 
-### 8.3 Loop-aware progression and host-session resumption
+The Lead assigns each implementation package as a versioned assignment record:
 
-The Research Lead follows a loop-aware progression, not a linear stage chain. Outer-cycle count, inner-attempt count, progress verdicts, and termination status are first-class project state:
-
-```text
-CREATED -> SCOPING -> PLANNING -> PLAN_REVIEW (plan v_n approved)
-        -> [ INNER LOOP: IMPLEMENTING ⇄ EVALUATING ]
-             (inner_attempt = 1, 2, ... under plan v_n)
-        -> INNER_EXIT_REVIEW (evidence package complete?)
-        -> ANALYZING -> CYCLE_REVIEW (Advisor: interpretation +
-             limitation diagnosis + progress verdict + route)
-        -> REPORTING -> REPORT_REVIEW -> COMPLETED        (objective achieved)
-           |-> SUSPENDED (unsolvable blocker or stagnation budget spent)
-           |-> PLANNING (re-plan v_n+1, only if outer budget remains)
+```yaml
+assignment:
+  assignment_id: "WORK-014"
+  base_revision: "git-sha or workspace snapshot the package applies to"
+  scope: "exact deliverable; out-of-scope exclusions"
+  allowed_paths: ["paths the Worker may read", "paths the Worker may modify"]
+  governing_specs: ["spec/artifact-ids the implementation must satisfy"]
+  acceptance_criteria: ["checkable criteria"]
+  authorized_verification: ["exact commands the Worker may run"]
+  attempt_budget: "max integration attempts for this package"
+  deadline: "soft stop (return PARTIAL) + hard cutoff (host-handled, §8.5)"
 ```
 
-At each gate, the Lead invokes the Advisor, evaluates the verdict, checks required tests/evidence, and records the decision. `revise` routes work back to the Lead within the same loop scope; `block`, `inconclusive`, failed checks, unresolved human decisions, exhausted inner-attempt limits, or a spent outer-cycle budget suspend progress. A `replan` route increments `outer_cycle` and resets `inner_attempt`; inner iterations never increment the outer counter. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state (including loop counters and the latest `cycle-decision.json`) and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
+Launch the Worker through Pi Subagents with `agent: "engineering-worker"`, the package as `task`, and a fresh context; the Worker inherits project context as configured but never the Lead's live reasoning. It edits only granted paths — never plans, decisions, reviews, or state records — and returns a structured result echoing the `assignment_id`:
 
-**Termination enforcement.** The charter sets `max_outer_cycles` (integer in [3, 5], default 4; human-adjustable within range). The Lead checks the three termination conditions at every CYCLE_REVIEW and immediately when a blocker surfaces: (1) objective achieved → REPORTING; (2) unsolvable blocker → SUSPEND with full evidence preservation; (3) stagnation — outer budget spent without the objective met, or consecutive `stalled`/`regressed` progress verdicts with no credible new lever → SUSPEND and report the best-supported (possibly inconclusive) conclusion. No instruction may force a positive conclusion or an extra cycle once termination has fired.
+- `SUCCESS`: changed artifacts (paths + versions/hashes), every authorized verification command with observed output verbatim (or explicit `not-run` with reason), deviations from the package, remaining follow-ups.
+- `PARTIAL`: what is done and verified, exact state of the rest, what was not attempted.
+- `BLOCKED`: the blocking fact, what was tried, the smallest unblock needed (corrected scope, missing spec, environment fix, or plan-level question).
+
+A missing, malformed, or timed-out result is a host-handled no-result: reconcile the workspace against `base_revision` before retrying or reassigning, and never treat dispatch or a `complete` run status as evidence. The Lead inspects the result, re-runs key verification where cheap, and records `accepted` or `rejected` with rationale before the output enters the evidence base; acceptance is a Lead decision, never a Worker claim. Never silently broaden a Worker's scope to fix a failure: re-scope explicitly, or route plan-level changes through ANALYSIS.
+
+**Worker-blocker triage.** A `BLOCKED` (or rejected) result routes by cause, not by default:
+
+| Cause | Route |
+|---|---|
+| Package underspecified or wrong scope/paths | Lead corrects and re-issues the package (new attempt against the package budget) |
+| Environment/tooling failure | Lead fixes or works around; HOLD the package if human credentials or quota are needed |
+| Technical approach uncertain within the plan | Targeted Advisor consultation, then reassess readiness |
+| Fix would change the plan | ANALYSIS via INNER_EXIT_GATE (diagnosis-only package); no silent redefinition |
+| Repeated BLOCKED against the package budget | HOLD + escalate to human (see §8.4 revise-round limits) |
+
+### 8.4 Loop-aware progression and host-session resumption
+
+The Research Lead follows a loop-aware progression, not a linear stage chain. Outer-cycle count, inner-attempt count, progress verdicts, and termination status are first-class project state. This table is authoritative for every gate: if prose elsewhere suggests a different next step, this table governs.
+
+```text
+CREATED -> SCOPING -> PLANNING -> PLAN_GATE (plan v_n approved?)
+        -> [ INNER LOOP: IMPLEMENTING ⇄ EVALUATING ]
+             (inner_attempt = 1, 2, ... under plan v_n)
+        -> INNER_EXIT_GATE (evidence package: complete or
+             explicitly incomplete-for-diagnosis?)
+        -> ANALYZING -> CYCLE_GATE (Advisor-reviewed interpretation,
+             limitation diagnosis, progress verdict, route)
+             |-> report route  -> REPORTING -> REPORT_GATE -> COMPLETED
+             |-> replan route  -> PLANNING (v_n+1; only if outer budget remains)
+             |-> HOLD          -> triage; resume or convert to SUSPENDED
+             |-> terminal stop -> SUSPENDED + status report
+```
+
+| Gate | Verdict | Legal routes → next state |
+|---|---|---|
+| PLAN_GATE | `approve` | `continue` → inner loop under plan v_n |
+| PLAN_GATE | `revise` | `remediate-plan` → PLANNING, then re-review (max 2 rounds, then HOLD + escalate) |
+| PLAN_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
+| PLAN_GATE | `block` | HOLD triage immediately; SUSPENDED + status report only if confirmed unresolvable |
+| INNER_EXIT_GATE | `approve` (complete package) | `continue` → ANALYSIS |
+| INNER_EXIT_GATE | `approve` (diagnosis-only package) | `continue-to-diagnose` → ANALYSIS; package is barred from supporting success claims |
+| INNER_EXIT_GATE | `revise` | `remediate-implementation` → bounded inner-loop rework, then re-review (max 2 rounds, then HOLD + escalate) |
+| INNER_EXIT_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
+| INNER_EXIT_GATE | `block` | HOLD triage immediately |
+| CYCLE_GATE | `approve` + objective met | `report` → REPORTING |
+| CYCLE_GATE | `approve`/`revise` + objective unmet, replan justified, budget remains | `replan` → PLAN_GATE for v_n+1 (charges the new cycle) |
+| CYCLE_GATE | `revise`, fix stays within plan | `remediate-implementation` → bounded inner-loop rework, then INNER_EXIT_GATE re-review |
+| CYCLE_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
+| CYCLE_GATE | `block`, or cap reached, or early-stagnation rule fired | HOLD triage → SUSPENDED + status report (SUSPENDED is terminal; HOLD needs a human decision to resume or convert) |
+| REPORT_GATE | `approve` | `complete` → COMPLETED (final research report) |
+| REPORT_GATE | `revise` | `remediate-report` → REPORTING, then re-review (max 2 rounds, then HOLD + escalate) |
+| REPORT_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
+| REPORT_GATE | `block` | HOLD triage immediately; SUSPENDED + status report only if confirmed unresolvable |
+| Any gate | no-verdict (invalid output, stale manifest, unavailable Advisor) | HOLD + bounded re-request (max 2), then escalate to human |
+
+A `replan` route increments `outer_cycle` and resets `inner_attempt`; inner iterations never increment the outer counter. Inner-attempt exhaustion does not stop the project by itself: it forces INNER_EXIT_GATE with the package marked incomplete-for-diagnosis, so ANALYSIS can diagnose the failure instead of being starved of it. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state (including loop counters, HOLD/SUSPENDED status, and the latest `cycle-decision.json`) and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
+
+**Termination enforcement.** The charter sets `max_outer_cycles` (integer in [3, 5], default 4; human-adjustable within range). The Lead checks the three termination conditions at every CYCLE_GATE and immediately when a blocker surfaces: (1) validated objective achievement → `report` route (checked first, even on the final allowed cycle); (2) unsolvable blocker → HOLD triage, then SUSPENDED with full evidence preservation and a status report if confirmed; (3) stagnation — outer cap reached without the objective met, or the early-stagnation rule (default 2 consecutive `stalled`/`regressed` cycles with no credible new lever, charter-adjustable) → SUSPENDED with the best-supported (possibly inconclusive) conclusion. A SUSPENDED stop produces a status report (what was tried, what failed, preserved evidence); it never produces an approved final research report. No instruction may force a positive conclusion or an extra cycle once termination has fired.
 
 Pi run/session state helps recover Advisor consultations and inspect their results, but the host Research Lead's conversational state is not a durable workflow engine. A new host session reloads the prompt file, reads the project state, and resumes explicitly. Do not claim automatic transactionality or indefinite recovery for the whole research cycle.
 
-### 8.4 Bounded autonomy and budgets
+### 8.5 Bounded autonomy and budgets
 
 Use explicit project-level limits for:
 
 - Outer cycles: `max_outer_cycles` in [3, 5] (default 4), recorded in the charter; inner attempts per cycle (bounded, e.g. set per project).
+- Gate revise rounds (default max 2 per gate) and consultation/evidence retries (default max 2 per gate): tracked separately, never charged against loop budgets.
 - Advisor consultations and repeated reviews.
+- Worker packages: per-package attempt budget plus two deadlines — a soft stop (Worker wraps up, runs verification on what is done, returns PARTIAL) and a hard cutoff (host-handled timeout: treated as no-result per §8.3, never dependent on a final Worker response).
 - Experiment runs and wall-clock duration.
 - Model token/cost usage and external API expenditure.
 - Sandbox CPU, memory, storage, and network use.
@@ -1105,6 +1188,10 @@ The third requires additional evidence capable of distinguishing that mechanism 
 
 The system must preserve these epistemic distinctions.
 
+### 9.5 Cycle comparability and exploratory labeling
+
+Re-planning may change hypotheses, methods, baselines, metrics, or scope — but charter-level objectives and success criteria stay frozen unless the human authorizes a change. Progress verdicts must compare comparable quantities: a changed metric is not progress evidence against the old one — mark non-comparable results as such and re-baseline explicitly. Development evidence (observed during inner-loop tuning) and confirmation evidence (from held-out evaluation under the frozen protocol) are labeled separately; a `report` route requires confirmation evidence, never tuning observations alone. Any protocol change made after observing primary evaluation results is labeled exploratory unless independently confirmed under a fresh plan version.
+
 ---
 
 ## 10. Pi implementation architecture
@@ -1137,23 +1224,31 @@ Use these paths:
 
 - `.pi/agents/engineering-worker/agent.md`: Pi subagent definition with YAML frontmatter and the Worker system prompt. Its canonical runtime name is `engineering-worker`.
 
-The Lead prompt is not a child agent and should not be launched with `subagent`. Prefer plain Markdown without Pi subagent YAML frontmatter for this file; only the Advisor and Worker files need subagent frontmatter. If the Lead file is nevertheless discovered as a child, exclude `agents/research-lead` from `subagents.agentExcludeDirs` in `.pi/settings.json` (relative to `.pi`); this removes it from the child catalog without affecting direct `--append-system-prompt` loading. Keep only `research-advisor` and `engineering-worker` available as the research subagents.
+The Lead prompt is not a child agent and should not be launched with `subagent`. Prefer plain Markdown without Pi subagent YAML frontmatter for this file; only the Advisor and Worker files need subagent frontmatter. If the Lead file is nevertheless discovered as a child, exclude `agents/research-lead` from `subagents.agentExcludeDirs` in `.pi/settings.json` (relative to `.pi`); this removes it from the child catalog without affecting direct `--append-system-prompt` loading. Keep only `research-advisor` and `engineering-worker` available as the research subagents. Note the current project `.pi/settings.json` is empty (`{}`): the exclusion, model overrides, and any tool defaults must still be added and their effect verified — list the discovered child catalog before and after, and confirm the Lead prompt loads via the flag in both states.
+
+**Runtime pin and verification checklist.** This design was written against Pi CLI 1.6.0 and `pi-subagents` 0.89.2. Before implementing the prompts, pin the deployed versions and verify each of the following against the running system; every frontmatter field and invocation below is conditional on verification until then:
+
+1. The exact frontmatter keys the deployed `pi-subagents` honors (`tools`, `model`, `thinking`, `systemPromptMode`, `inheritProjectContext`, `defaultContext`, `acceptanceRole`, aliases) — the reference file's keys are examples, not proof.
+2. What a fresh child context excludes (host conversation, host system prompt) and still loads (project context files, skills, tool providers) for each child.
+3. The effective tool list of each child at launch (inspect, don't assume), including that no delegation-capable tool is reachable from either child.
+4. The `agentExcludeDirs` path base and its effect on discovery vs. direct prompt loading.
+5. Structured-output support and schema-constraint behavior for gate verdicts (§4.4, §11.2–11.3).
 
 The Research Lead's tools come from the main Pi host configuration. Ensure the `pi-subagents` extension and its `subagent` tool are available in that session. The Advisor's frontmatter should set an explicit read-only tool allowlist (for example `read`, `grep`, `find`, `ls`, plus selected read-only evidence providers), project-context inheritance as needed, a separately configurable model, and no nested subagent delegation. The Worker's frontmatter should set a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution such as `bash`/`codemode` for assigned paths and tests), no `subagent` tool, and a separately configurable model. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
 
 ### 10.3 Host-led Advisor delegation
 
-For a consultation or mandatory stage review, the Lead calls `subagent` directly with `agent: "research-advisor"` and a focused `task` containing the decision/review brief, rubric, constraints, and exact artifact paths/IDs. Use fresh child context so the Advisor assesses the supplied evidence rather than inheriting the Lead's conversation. Where appropriate, request schema-constrained structured output matching Section 4.4 and inspect the final result before proceeding.
+For a consultation or mandatory stage review, the Lead calls `subagent` directly with `agent: "research-advisor"` and a focused `task` containing the decision/review brief, rubric, constraints, and exact artifact paths/IDs. Use a verified fresh child context (see §10.2 checklist: excludes host conversation and host system prompt; inherits only configured project context) so the Advisor assesses the supplied evidence rather than inheriting the Lead's conversation. Where appropriate, request schema-constrained structured output matching Section 4.4 and validate the returned verdict, gate name, and `review_target` before proceeding.
 
 The Lead owns all stage sequencing, task execution, remediation, project-state updates, and direct human escalation. It should invoke one Advisor child per decision/review, consume the result via the Pi subagent result/status mechanism, and preserve useful outcomes in project files. Use asynchronous child execution for long consultations when it keeps the host responsive, but do not treat dispatch acceptance as a completed review.
 
-### 10.3b Host-led Worker delegation
+### 10.4 Host-led Worker delegation
 
-For implementation work, the Lead calls `subagent` with `agent: "engineering-worker"` and a focused `task` containing the work package: exact scope, allowed file paths, governing specs, acceptance criteria, verification commands, and the attempt/deadline budget. Use a fresh child context so the Worker implements from the package rather than inheriting the Lead's exploratory reasoning. Prefer one Worker child per work package; run independent packages concurrently where the host can still verify each result. The Lead must collect each result, inspect files changed and observed verification output (re-running key checks where cheap), and record acceptance before the code enters the evidence base. Never treat Worker dispatch, a `complete` run status, or the Worker's own success claim as acceptance.
+For implementation work, the Lead calls `subagent` with `agent: "engineering-worker"` and a focused `task` containing the work package: exact scope, allowed file paths, governing specs, acceptance criteria, verification commands, and the attempt/deadline budget. Use a fresh child context so the Worker implements from the package rather than inheriting the Lead's exploratory reasoning. Prefer one Worker child per work package. Default to one active Writer per workspace; concurrent packages require isolated workspaces (one worktree per package) plus Lead-controlled integration in recorded order against each package's `base_revision`. Before every dispatch, persist the assignment ID, child run ID, and workspace ref in project state; on host resume, reconcile live runs and unaccepted changes against those refs before retrying, reassigning, or advancing. The Lead must collect each result, inspect files changed and observed verification output (re-running key checks where cheap), and record acceptance before the code enters the evidence base. Never treat Worker dispatch, a `complete` run status, or the Worker's own success claim as acceptance.
 
 Do not add `.pi/workflows/research-lifecycle.js` as a required component in version 1. A reusable `pi-subagents` scripted workflow may be considered later for a well-defined mechanical sequence, but it is not the host's role and must not replace the Research Lead as lifecycle owner.
 
-### 10.4 Suggested initial stack
+### 10.5 Suggested initial stack
 
 | Component | Recommendation |
 |---|---|
@@ -1171,11 +1266,11 @@ Do not add `.pi/workflows/research-lifecycle.js` as a required component in vers
 | Experiment analysis | Python, pandas, SciPy, and task-specific libraries where appropriate |
 | Literature sources | Academic search/publisher APIs, official documentation, and repositories through explicitly loaded tools |
 | Verification | Tests, executable checks, source provenance, and independent scientific assessment |
-| Observability | Pi Advisor run/session/usage records plus durable project decision and artifact manifests |
+| Observability | Pi Advisor and Worker run/session/usage records plus durable project decision and artifact manifests |
 
 The Lead must be capable enough to implement and evaluate real experiments. A cheaper model that frequently generates flawed work may increase total cost through rework and Advisor consultations.
 
-### 10.5 Tool permissions and security
+### 10.6 Tool permissions and security
 
 **Research Lead host**
 
@@ -1193,7 +1288,7 @@ The Lead must be capable enough to implement and evaluate real experiments. A ch
 
 - Read/inspect tools plus `edit`, `write`, and scoped command execution (`bash`/`codemode`) limited to assigned paths, tests, and verification commands.
 - No access to project plans, decisions, reviews, or state records; no `subagent` delegation tool — it cannot spawn further agents.
-- Returns the Section 8.2b structured result for every assignment, including blocked or partial work; reports blockers to the Lead (via `contact_supervisor` heartbeat where available, otherwise in the returned result), never to the human directly.
+- Returns the Section 8.3 structured result for every assignment, including blocked or partial work; reports blockers in the returned result (no heartbeat channel in version 1), never to the human directly.
 
 Apply sandboxing, filesystem/network boundaries, secrets management, resource quotas, restricted external side effects, prompt-injection defenses, and human approval for irreversible or externally visible actions at the host/tool layer. Pi tool allowlists are not an operating-system sandbox. Retrieved pages, repositories, datasets, prompts, and dependencies are untrusted data—not instructions that may override either role contract.
 
@@ -1240,6 +1335,21 @@ Apply sandboxing, filesystem/network boundaries, secrets management, resource qu
 
 **Role:** Principal Research Scientist and Methodological Advisor, invoked as the `research-advisor` Pi subagent.
 
+**Suggested frontmatter** (verify every key against the deployed runtime per the §10.2 checklist before use):
+
+```yaml
+name: research-advisor
+description: Read-only methodological reviewer for Lead-assigned research consultations and gate reviews. Assesses cited evidence with fresh context and returns structured advice or gate verdicts; owns no decisions, implementation, or acceptance.
+model: <independently configured; strong enough for methodological critique>
+thinking: high
+systemPromptMode: replace
+inheritProjectContext: true
+tools: read, grep, find, ls
+defaultContext: fresh
+```
+
+Notes: read-only allowlist plus explicitly approved read-only evidence providers only; no `write`, `edit`, shell, or `subagent` tools. Frontmatter states intent; the enforceable boundary is verified effective tool inspection (Milestone 3).
+
 **Mission:** Improve the theoretical rigor, scientific validity, and intellectual quality of the Research Lead's work.
 
 **Tool and authority boundary**
@@ -1281,7 +1391,7 @@ tools: read, grep, find, ls, bash, edit, write, codemode
 defaultContext: fresh
 ```
 
-Notes: no `subagent` tool (the Worker cannot spawn agents); `contact_supervisor` may be added for heartbeat progress updates where the host supports it. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
+Notes: no `subagent` tool (the Worker cannot spawn agents) and no heartbeat/`contact_supervisor` in version 1 — silence is handled by bounded run status plus workspace reconciliation (§8.3, §8.5). Loading a tool provider/extension and allowlisting its tool are separate configuration steps. Frontmatter allowlists state intent; the enforceable boundary is the Milestone 3 confinement verification, not this file.
 
 **Role:** Bounded research implementation worker, invoked as the `engineering-worker` Pi subagent.
 
@@ -1362,7 +1472,7 @@ This allows the contribution of consultation and context engineering to be estim
 - End-to-end task success.
 - Completion without unnecessary human intervention.
 - Execution cost.
-- Advisor token consumption.
+- Advisor and Worker token consumption.
 - Wall-clock latency.
 - Recovery after interruption.
 - Trace and artifact completeness.
@@ -1392,7 +1502,8 @@ Test the system against deliberate failures.
 | Experiment returns negative result | Preserve and report honestly |
 | Experiment results are inconsistent | Investigate variability and validity |
 | Lead host session or Pi process is interrupted | Start a new host session with the Research Lead prompt, reconcile project state/artifacts, and resume explicitly; recover an Advisor child run only when supported by `pi-subagents`, otherwise relaunch from durable evidence |
-| Research budget is exhausted | Suspend and report status |
+| Worker run interrupted after changing files but before acceptance | Treat as no-result: reconcile the workspace against the assignment `base_revision`, quarantine unaccepted changes, re-verify from the recorded revision, then retry or reassign — never accept orphaned mutations |
+| Research budget is exhausted | HOLD, report status, and ask the human (resume only on extended budget; otherwise SUSPENDED + status report) |
 | Retrieved document contains malicious instructions | Treat as untrusted content |
 | Evaluation data is contaminated | Flag the validity threat and stop affected claims |
 
@@ -1407,18 +1518,18 @@ Implement:
 - `.pi/agents/research-lead/agent.md`, loaded into the main Pi session with `--append-system-prompt`.
 - `.pi/agents/research-advisor/agent.md` as the Pi subagent definition.
 - `.pi/agents/engineering-worker/agent.md` as the bounded-writer Pi subagent definition (modeled on `implementation-workflow-worker`).
-- Clear tool boundaries: Lead owns execution, acceptance, and decisions; Advisor is read-only and cannot spawn more agents; Worker writes only granted paths, runs assigned verification, returns observed evidence, and cannot spawn agents.
-- Project state/artifact layout, the Advisor consultation/review contract, and the Worker assignment/acceptance contract (Section 8.2b).
+- Clear tool boundaries: Lead owns execution, acceptance, and decisions; Advisor is read-only and cannot spawn more agents; Worker is restricted by prompt rules to granted paths, assigned verification, observed-evidence returns, and no agent spawning — prompt-level only in this milestone (see confinement note below).
+- Project state/artifact layout, the Advisor consultation/review contract, and the Worker assignment/acceptance contract (Section 8.3).
 - Agent-discovery exclusion for the Lead prompt directory if its format would otherwise make it a child agent.
 
-**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor can inspect but not modify research artifacts; the Worker can modify only granted paths and returns structured evidence; the Lead independently routes and consumes consultations and work packages.
+**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor returns read-only inspection evidence; the Worker returns structured evidence for granted-path work; the Lead independently routes and consumes consultations and work packages. This exit is behavioral evidence only: nothing in Milestone 1 proves the Worker cannot touch out-of-scope paths — prompt rules are not enforcement. Enforceable confinement (denied out-of-scope read/write/execution/delegation tests, named enforcement point) is verified in Milestone 3 before any write-capable deployment beyond exercises.
 
 ### Milestone 2 — Host-led lifecycle discipline
 
 Implement and test through bounded research exercises:
 
 - The dynamic dual-loop sequence (inner IMPLEMENTATION ⇄ EVALUATION, outer plan-cycle → ANALYSIS → re-plan), loop counters, termination conditions, and mandatory Advisor review instructions in the Lead prompt.
-- Readiness checks, consultation triggers, fresh-context review packets, and bounded revise/suspend decisions.
+- Readiness checks, consultation triggers, fresh-context review packets, and bounded revise/HOLD decisions.
 - Project-state updates, immutable artifact manifests, and resume instructions for a new host session.
 - Human clarification/escalation behavior and explicit disclosure that gates are host-agent policy, not application-enforced workflow.
 
@@ -1431,8 +1542,9 @@ Implement:
 - Trusted literature/search tools and source provenance.
 - Repository and project artifact access.
 - Isolated code execution, automated testing, and experiment runner.
+- Worker confinement verification: denied out-of-scope read/write/execution/delegation probes against the named enforcement point (host/tool-layer sandbox and workspace isolation); read permission verified separately from modify permission. No write-capable Worker deployment beyond exercises until these probes pass.
 - Immutable experiment configurations/results and artifact manifests.
-- Explicitly scoped extensions/MCP tools for the host and Advisor.
+- Explicitly scoped extensions/MCP tools for the host, Advisor, and Worker.
 
 **Exit criterion:** The Lead can implement and reproduce a small empirical study end to end, and the Advisor can inspect the relevant primary evidence read-only.
 
@@ -1451,7 +1563,7 @@ Implement:
 
 Implement:
 
-- Tested host-session resumption from durable project state and Advisor-run recovery where supported.
+- Tested host-session resumption from durable project state, Advisor-run recovery where supported, and Worker workspace reconciliation (assignment/run/workspace refs, unaccepted-change quarantine per §8.3–§8.4).
 - External compute/API quotas and project-level resource accounting.
 - Context package generation, selective evidence expansion, and decision reuse.
 - Token/cost attribution and measured evaluation of consultation effectiveness.
@@ -1492,15 +1604,7 @@ The Lead revises the plan accordingly.
 
 ### Stage 2 — Implementation
 
-The Lead creates:
-
-- Prompt-variant generator.
-- Semantic equivalence validation process.
-- Model execution adapter.
-- Experiment configuration.
-- Evaluators.
-- Repetition and sampling controls.
-- Result storage and analysis scripts.
+The Lead decomposes the approved methodology: protocol-sensitive pieces stay with the Lead; bounded construction goes to the Engineering Worker as an explicit package — e.g. WORK-001 (prompt-variant generator + semantic-equivalence checks: allowed paths, governing spec refs, acceptance tests, verification commands). The Worker returns files changed plus observed test output; the Lead verifies, accepts explicitly, and only then submits the baseline for PLAN_GATE readiness.
 
 The Advisor reviews the design and inspects evidence that the implementation matches the experiment protocol.
 
@@ -1521,7 +1625,7 @@ Suppose the first evaluation shows weak exact-match grading confounded by answer
 
 Suppose the stabilized results suggest that semantically equivalent prompt variations have little effect on easy extraction tasks but substantial effects on unfamiliar reasoning tasks.
 
-**Stage 4 — Analysis.** The Lead compares observations against the competing causal hypotheses and diagnoses the binding limitation of plan v_1 (e.g. sampling variability and reasoning-token budget confound the causal claim). The Advisor challenges the interpretation — asking whether variation in answer formatting, stochastic sampling, or computational budget explains the observations — and reviews the progress verdict and cycle decision. If the diagnosis calls for a design change the current plan cannot absorb (e.g. new controls or task families), the approved `replan` starts outer cycle 2 under plan v_2; otherwise the Lead iterates the inner loop again if inner-attempt budget remains. The loop repeats until the objective is met, an unsolvable blocker appears, or the outer-cycle budget (3–5 cycles) is spent.
+**Stage 4 — Analysis.** The Lead compares observations against the competing causal hypotheses and diagnoses the binding limitation of plan v_1 (e.g. sampling variability and reasoning-token budget confound the causal claim). The Advisor challenges the interpretation — asking whether variation in answer formatting, stochastic sampling, or computational budget explains the observations — and reviews the progress verdict and cycle decision. If the diagnosis calls for a design change the current plan cannot absorb (e.g. new controls or task families), the approved `replan` starts outer cycle 2 under plan v_2; otherwise the Lead iterates the inner loop again if inner-attempt budget remains. The loop repeats until the objective is met, an unsolvable blocker appears, or the outer-cycle budget (3–5 cycles) is spent. Any replan that would change the success criteria or research objective itself requires human authorization first (§9.5) — the Advisor cannot approve charter changes.
 
 ### Stage 5 — Reporting
 
@@ -1552,10 +1656,10 @@ The initial system should adopt the following decisions.
 | Primary owner | Research Lead host agent |
 | Orchestration | Research Lead directly invokes `research-advisor` and `engineering-worker` through `pi-subagents` `subagent` tool |
 | Agent autonomy | Lead executes research work in the host session; Advisor provides bounded advice/review child runs; Worker executes only assigned implementation packages and returns observed evidence |
-| Review enforcement | Mandatory instruction-level gate in the Lead prompt; not application-enforced unless a separate policy extension is added |
+| Review enforcement | Mandatory instruction-level gates (verdict/route table §8.4, fail-closed validation §4.4) in the Lead prompt; not application-enforced unless a separate policy extension is added |
 | Confidence assessment | Structured readiness records, not arbitrary scores |
 | Consultation context | Compact task briefs with expandable primary-artifact references and fresh Advisor context |
-| Shared memory | Versioned project artifacts; Pi run/session state is consultation history, not research source of truth |
+| Shared memory | Versioned project artifacts; Pi Advisor/Worker run/session state is execution history, not research source of truth |
 | Research validation | Executable checks, provenance, and independent evaluation; Advisor agreement is not proof |
 | Human involvement | Lead asks the human directly for material decisions and unresolved exceptions |
 | Technology | Pi host session + `pi-subagents` extension; no second orchestration framework or workflow script in version 1 |
