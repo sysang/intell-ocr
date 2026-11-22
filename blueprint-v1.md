@@ -56,7 +56,7 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 ### 1.2 Core principles
 
-**P1. Closed role set.** Do not create additional Planner, Critic, Reviewer, Evaluator, or Writer agents. Planning, criticism, review, evaluation, and writing are functions of the three core roles: the Lead owns execution and decisions, the Advisor owns critique and review, and the Worker owns bounded implementation. The only other agents the team may call are the three named specialist advisors — `harness-architector`, `backend-architector`, `frontend-architector` — for domain expertise. Specialists advise only; they never own gates, decisions, implementation, or acceptance.
+**P1. Closed role set.** Do not create additional Planner, Critic, Reviewer, or Evaluator agents. Planning, criticism, review, and evaluation are functions of the three core roles: the Lead owns execution and decisions, the Advisor owns critique and review, and the Worker owns bounded implementation. Beyond the core three, the team may call only named members in two tiers: (a) three specialist advisors — `harness-architector`, `backend-architector`, `frontend-architector` — for domain expertise: they advise only and never own gates, decisions, implementation, or acceptance; (b) two knowledge services — `okf-reader` (task-driven retrieval from the hub bundle) and `okf-writer` (bounded maintenance of hub records): they produce records, never rulings — no gate verdicts, no `src/` writes, no state-counter writes, no commits. The Lead is the sole invoker of both services.
 
 **P2. One accountable owner.** The Lead owns every research deliverable. Advisor feedback does not transfer implementation responsibility.
 
@@ -179,6 +179,13 @@ The three specialist advisors are pre-existing read-only roles the team consults
 - `frontend-architector` (`.pi/agents/frontend-architector/agent.md`) — rendering, state management, build/performance, design systems, accessible components.
 
 All three are caller-agnostic: the Lead consults them directly with decision-oriented briefs (same consultation discipline as Advisor Modes A/B, §6), and the Worker may consult them from inside a package through bounded nested delegation, recording every run ID and treating their output as unverified input until checked against the acceptance criteria. Two scopes govern this nested collaboration, and they behave differently. Capability scope (tools, context, delegation depth) narrows downward by design: each level sees only what its task requires (least privilege). Discovery scope (which agent definitions a run can see and launch) must instead remain sufficient: the three architects must stay resolvable from a Worker's nested position, or the consult step is dead on arrival and every expertise-dependent package stalls on BLOCKED. Sufficiency is proven by execution, not assumed from host-level discovery — the Worker→architect dry run must pass before any real research depends on the path. Specialist advice never authorizes actions and never substitutes for a gate verdict — only `research-advisor` reviews gates, and only the Lead accepts work. No edits to the specialists' own definitions are required.
+
+Two knowledge services maintain the documentation system so the Lead orchestrates instead of clerking:
+
+- `okf-reader` (`.pi/agents/okf-reader/agent.md`) — read-only retrieval from the hub bundle: minimum sufficient attributable evidence plus trust/freshness signals and explicit gaps, per its RESULT.md contract. Never judges, never writes, never delegates.
+- `okf-writer` (`.pi/agents/okf-writer/agent.md`) — bounded maintenance of hub concept records, indexes, and logs as an OKF v0.2 bundle: frontmatter, cross-links, `validate_okf.py` bundle-check before publishing, `needs_review` (never silent improvisation) on conflict, contradiction, or unsafe publication. Never commits, never touches `src/` or project-state counters.
+
+The Lead is their sole invoker and owns everything they produce until verified: reader gaps become investigation tasks, writer `needs_review`/`rejected` results become Lead triage, and even `committed` results get a Lead spot-check before gate reliance. Record-vs-artifact boundary: the writer curates concept records, indexes, and logs; execution artifacts (`src/`, experiment outputs, Worker plan files, manifests, `project-state.json`) are written directly by their producers and indexed — not rewritten — by the writer. Canonical format authority is the agent-local OKF v0.2 specification copies (`.pi/agents/okf-reader/spec/`, `.pi/agents/okf-writer/spec/`); the older v0.1 skill copy is background, not authority.
 
 The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Lead role. Direct Worker→Advisor consults are permitted but wasteful: they bypass the Lead's consultation plan and can never produce a gate verdict (verdicts are Lead-requested and manifest-bound only). The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
 
@@ -917,12 +924,14 @@ repository/
 │   │   ├── harness-architector/   # discovered specialist (read-only domain consultant)
 │   │   ├── backend-architector/   # discovered specialist (read-only domain consultant)
 │   │   ├── frontend-architector/  # discovered specialist (read-only domain consultant)
+│   │   ├── okf-reader/            # knowledge service: read-only hub retrieval (Lead-invoked only)
+│   │   ├── okf-writer/            # knowledge service: bounded hub maintenance (Lead-invoked only)
 │   │   └── research-lead/
 │   │       └── agent.md       # appended to the main Pi session
 │   ├── plans/               # Worker plan files (implementation-workflow); written only when the package explicitly grants its own plan file — local scratch, not governance records
 │   └── settings.json          # agent discovery + model overrides
 └── research-projects/<project-id>/
-    ├── change-and-progress-logs/   # CENTRAL GOVERNANCE HUB — the single authoritative record of how the project evolves; every gate decision, cycle transition, charter or planning change, review verdict, and progress checkpoint lands here (or is indexed here) before it counts as project truth
+    ├── change-and-progress-logs/   # CENTRAL GOVERNANCE HUB — the single authoritative record of how the project evolves; every gate decision, cycle transition, charter or planning change, review verdict, and progress checkpoint lands here (or is indexed here) before it counts as project truth. Maintained as an OKF v0.2 bundle: concept records, indexes, and logs via `okf-writer`; retrieval via `okf-reader`; state counters by the Lead
     │   ├── index.md                # master index table governing the whole hub: every entry (charter version, plan version, review verdict, decision, cycle) is a row pointing at its artifact; the retrieval map for audits, resumption, and REPORT_GATE confirmation
     │   ├── director-brief.md        # standing executive summary for the human director, refreshed every cycle: objective status, progress, spend-vs-budget, blockers, pending director decisions
     │   ├── charter/
@@ -950,7 +959,7 @@ repository/
     └── project-state.json            # the Lead's live ledger: stage, outer_cycle, inner_attempt, budgets, HOLD/SUSPENDED status
 ```
 
-`change-and-progress-logs/` is the centralized governance hub of the research project: charter, planning, reviews, and decisions live nowhere else, and `index.md` is the master table the Lead maintains (one row per charter version, plan version, review verdict, decision, and cycle, each pointing at its artifact) so any state — past or present — is retrievable for audits, session resumption, and REPORT_GATE confirmation evidence.
+`change-and-progress-logs/` is the centralized governance hub of the research project: charter, planning, reviews, and decisions live nowhere else, and `index.md` is the master table the Lead maintains (one row per charter version, plan version, review verdict, decision, and cycle, each pointing at its artifact) so any state — past or present — is retrievable for audits, session resumption, and REPORT_GATE confirmation evidence. The hub is an OKF v0.2 bundle: the Lead tasks `okf-writer` with all concept-record, index, and log writes (with `validate_okf.py` bundle-check before publication) and tasks `okf-reader` with evidence retrieval; the Lead keeps direct ownership of `project-state.json` counters and git checkpoints.
 
 The project workspace is the durable source of truth. Pi subagent session/run artifacts and temporary outputs are useful for consultation history, but their retention is configurable and they are not a permanent research archive. The Lead copies or references durable findings in project records before relying on them. Large datasets, binaries, and experiment outputs may be stored outside Git in content-addressed artifact storage; manifests should record immutable locations and hashes.
 
@@ -1137,6 +1146,14 @@ The human research director governs; the Lead keeps them governable. The directo
 - **Final report audience.** Written for two readers: executive summary for the director (what was found, what it means, what remains open) over a technical body for the record. REPORT_GATE confirms the summary, read alone, preserves the main limitation, decision-relevant negatives, and the boundary on what the director should do with the finding.
 
 **SUSPENDED conversion authority.** Reaching the charter's cycle cap or firing the early-stagnation rule converts to SUSPENDED by the Lead (charter-mandated, mechanical) with a report; a confirmed-unresolvable blocker converts by the Lead after triage with evidence preserved. Cease, narrow, or resume-with-more-budget decisions convert only by the human director — the Lead HOLDs, reports, and awaits. Budget exhaustion alone never converts without a human decision.
+
+### 8.7 Knowledge-service delegation
+
+The Lead delegates documentation mechanics to the two knowledge services (§2.4) and keeps judgment, state, and checkpoints. Standing rules:
+
+- **Reader for evidence assembly.** Task `okf-reader` with pre-gate evidence gathering (“minimum sufficient evidence for CYCLE_GATE on X”) and mid-run director questions. Its RESULT.md JSON carries the searched scope — never treat a no-match as absence beyond that scope. Gaps are Lead investigation tasks, not stoppers-by-default and never silent skips at gates.
+- **Writer for record mechanics.** Task `okf-writer` with decision records, brief-refresh mechanics, index/log updates, and review-record filing, stating exact intended changes and scope. On `committed`, spot-check before gate reliance; on `needs_review`/`rejected`, triage (supply evidence, narrow scope, or record the conflict) — never silently override or fabricate missing metadata. The writer never commits; git checkpoints stay the Lead's.
+- **Content stays the Lead's.** The services shape records; judgments (brief assessments, decision rationale, verdict intake, acceptance) originate with the Lead and pass through the writer as content, not as service inference.
 
 ---
 
@@ -1540,6 +1557,9 @@ Test the system against deliberate failures.
 | Upward message lacks tag or record | Lead tags every message DECISION-REQUIRED or FYI and records the former; untagged escalations are a process failure |
 | Director asks mid-run status | Lead answers from the standing brief and indexed records, or states explicitly what is not yet recorded |
 | Ambiguous director reply | Lead asks one focused question, never guesses; reads back the recorded effect; closes or supersedes the entry and refreshes the brief |
+| Writer returns `needs_review` | Lead triages: supply missing evidence/authorization, narrow scope, or record the conflict — never silently override or fabricate metadata |
+| Reader reports gaps | Gaps become investigation tasks; gates never rely on absent evidence |
+| Validator reports structural errors | Fix records before gate reliance; a passing validator is form-only, never evidence truth |
 | Experiment results are inconsistent | Investigate variability and validity |
 | Lead host session or Pi process is interrupted | Start a new host session with the Research Lead prompt, reconcile project state/artifacts, and resume explicitly; recover an Advisor child run only when supported by `pi-subagents`, otherwise relaunch from durable evidence |
 | Worker run interrupted after changing files but before acceptance | Treat as no-result: reconcile the workspace against the assignment `base_revision`, quarantine unaccepted changes, re-verify from the recorded revision, then retry or reassign — never accept orphaned mutations |
@@ -1689,7 +1709,7 @@ The initial system should adopt the following decisions.
 
 | Decision | Recommendation |
 |---|---|
-| Number of role definitions | Three core roles (Research Lead host prompt, Research Advisor subagent, Engineering Worker subagent) plus three named specialist advisors (harness / backend / frontend-architector); closed set per P1 |
+| Number of role definitions | Three core roles (Lead host prompt, Advisor subagent, Worker subagent) plus three specialist advisors plus two knowledge services (okf-reader, okf-writer); closed set per P1 |
 | Research Lead | Main Pi session loaded with `.pi/agents/research-lead/agent.md` via `--append-system-prompt` |
 | Research Advisor | Read-only Pi child agent at `.pi/agents/research-advisor/agent.md` |
 | Engineering Worker | Bounded-writer Pi child agent at `.pi/agents/engineering-worker/agent.md` (nested delegation bounded: skill-directed, depth ≤ 2) |
