@@ -1,5 +1,5 @@
 # System Design Guideline
-## Three-Agent Autonomous Research Team for Applied AI: LLM & Agentic Systems
+## Autonomous Research Team for Applied AI: LLM & Agentic Systems
 
 **Version:** 1.1 — Proposed Pi Subagents Architecture
 
@@ -56,7 +56,7 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 ### 1.2 Core principles
 
-**P1. Three roles only.** Do not create additional Planner, Critic, Reviewer, Evaluator, or Writer agents. Planning, criticism, review, evaluation, and writing are functions of the three established roles: the Lead owns execution and decisions, the Advisor owns critique and review, and the Worker owns bounded implementation.
+**P1. Closed role set.** Do not create additional Planner, Critic, Reviewer, Evaluator, or Writer agents. Planning, criticism, review, evaluation, and writing are functions of the three core roles: the Lead owns execution and decisions, the Advisor owns critique and review, and the Worker owns bounded implementation. The only other agents the team may call are the three named specialist advisors — `harness-architector`, `backend-architector`, `frontend-architector` — for domain expertise. Specialists advise only; they never own gates, decisions, implementation, or acceptance.
 
 **P2. One accountable owner.** The Lead owns every research deliverable. Advisor feedback does not transfer implementation responsibility.
 
@@ -150,27 +150,37 @@ The Research Lead host prompt defines the loop discipline (inner/outer loop rout
 
 Use a structured Advisor response contract and Pi structured output where appropriate; check the verdict and cited evidence rather than relying on free-form agreement. A valid schema or successful Advisor child run proves only response shape/run completion—not scientific correctness.
 
+The host stays actively aware of every child run it launches — silent stalls are a first-class failure mode. After each dispatch the Lead confirms launch success promptly (status check against the recorded run ID), polls bounded background runs instead of assuming completion, and reconciles run/session artifacts on host resume. Any child failure (launch rejection such as an unresolvable model, mid-run error, timeout, missing result) is captured with its error text, recorded in project state, and surfaced to the human in-session immediately — HOLD plus direct notification, never silent retry beyond the capped rounds. Before any real research run, smoke-test all five child definitions with a trivial task so unresolvable models or discovery breaks surface when the fix is cheap.
+
 This design intentionally relies on the host Research Lead to follow the mandatory lifecycle. `pi-subagents` does not enforce research-stage gates on direct host actions. If non-bypassable policy enforcement becomes a requirement, add a separately designed and tested Pi permission/policy extension; do not claim the role prompts alone provide hard enforcement.
 
 ### 2.4 Agent separation
 
-| Responsibility | Research Lead (host) | Research Advisor (subagent) | Engineering Worker (subagent) |
-|---|---|---|---|
-| Interpret research direction | Owns | Clarifies | — |
-| Define research questions | Owns | Challenges | — |
-| Literature review | Executes | Assesses relevance and coverage | — |
-| Research methodology | Designs | Reviews and improves | — |
-| Research roadmap | Creates | Approves or requests revision | — |
-| Implementation | Assigns, verifies, accepts | Reviews design and evidence | Executes assigned package only |
-| Experiment execution | Assigns / runs, owns results | Challenges validity | Runs assigned commands, reports observed output |
-| Statistical analysis | Executes | Reviews interpretation | — |
-| Final report | Writes | Critically reviews | — |
-| Project status | Maintains | Reads as necessary | Reads assigned task context only |
-| Research decisions | Proposes and implements | Advises and reviews | Makes none; reports blockers |
-| Human escalation | Asks the human directly when necessary | Can recommend escalation | Reports blocker to Lead (never contacts human directly) |
-| Budget management | Owns project-level budget decisions | Uses allocated consultation budget | Uses allocated implementation budget |
+| Responsibility | Research Lead (host) | Research Advisor (subagent) | Engineering Worker (subagent) | Specialist architects (subagents) |
+|---|---|---|---|---|
+| Interpret research direction | Owns | Clarifies | — | — |
+| Define research questions | Owns | Challenges | — | — |
+| Literature review | Executes | Assesses relevance and coverage | — | — |
+| Research methodology | Designs | Reviews and improves | — | Advises on harness / backend / frontend design questions |
+| Research roadmap | Creates | Approves or requests revision | — | — |
+| Implementation | Assigns, verifies, accepts | Reviews design and evidence | Executes assigned package only | Consulted by Lead or Worker on domain questions; writes nothing |
+| Experiment execution | Assigns / runs, owns results | Challenges validity | Runs assigned commands, reports observed output | Advises on harness, scale, and performance design |
+| Statistical analysis | Executes | Reviews interpretation | — | — |
+| Final report | Writes | Critically reviews | — | — |
+| Project status | Maintains | Reads as necessary | Reads assigned task context only | Reads as necessary |
+| Research decisions | Proposes and implements | Advises and reviews | Makes none; reports blockers | Advises within domain; makes none |
+| Human escalation | Asks the human directly when necessary | Can recommend escalation | Reports blocker to Lead (never contacts human directly) | Recommends via caller (never contacts human directly) |
+| Budget management | Owns project-level budget decisions | Uses allocated consultation budget | Uses allocated implementation budget | Uses allocated consultation budget |
 
-The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` skill, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Advisor or Lead roles. The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
+The three specialist advisors are pre-existing read-only roles the team consults for domain expertise, not research governance:
+
+- `harness-architector` (`.pi/agents/harness-architector/agent.md`) — agent harnesses, skills, subagents, context/memory, workflows, governed adaptation.
+- `backend-architector` (`.pi/agents/backend-architector/agent.md`) — architecture style, database/storage, APIs/messaging, security/auth, scalability/performance.
+- `frontend-architector` (`.pi/agents/frontend-architector/agent.md`) — rendering, state management, build/performance, design systems, accessible components.
+
+All three are caller-agnostic: the Lead consults them directly with decision-oriented briefs (same consultation discipline as Advisor Modes A/B, §6), and the Worker may consult them from inside a package through bounded nested delegation, recording every run ID and treating their output as unverified input until checked against the acceptance criteria. Two scopes govern this nested collaboration, and they behave differently. Capability scope (tools, context, delegation depth) narrows downward by design: each level sees only what its task requires (least privilege). Discovery scope (which agent definitions a run can see and launch) must instead remain sufficient: the three architects must stay resolvable from a Worker's nested position, or the consult step is dead on arrival and every expertise-dependent package stalls on BLOCKED. Sufficiency is proven by execution, not assumed from host-level discovery — the Worker→architect dry run must pass before any real research depends on the path. Specialist advice never authorizes actions and never substitutes for a gate verdict — only `research-advisor` reviews gates, and only the Lead accepts work. No edits to the specialists' own definitions are required.
+
+The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` skill, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Lead role. Direct Worker→Advisor consults are permitted but wasteful: they bypass the Lead's consultation plan and can never produce a gate verdict (verdicts are Lead-requested and manifest-bound only). The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
 
 ---
 
@@ -546,7 +556,7 @@ Where practical, record the experiment protocol before observing the primary eva
 
 **Objective:** Build the software and experimental infrastructure required by the approved methodology.
 
-The Lead decomposes the approved methodology into bounded work packages and assigns them to the Engineering Worker (or implements plan-sensitive pieces itself). A package states the exact scope, allowed file paths, relevant specs, acceptance criteria, and the verification commands the Worker must run. The Worker edits only granted paths, never project plans, decisions, or review records. The Lead inspects the returned evidence (files changed, test commands with observed results), re-runs key checks where cheap, and accepts or rejects the work; acceptance is a Lead decision, never a Worker claim.
+The Lead decomposes the approved methodology into bounded work packages and assigns them to the Engineering Worker (or implements plan-sensitive pieces itself). A package states the exact scope, allowed file paths, relevant specs, acceptance criteria, and the verification commands the Worker must run. The Worker edits only granted paths, never project plans (except its own granted plan file under `.pi/plans/`, whose internal progress records it maintains itself), decisions, or review records. Record-keeping split: the Worker owns its skill-plan records; the Lead owns all assignment, acceptance, and project-state records and derives them from the Worker's reported result, never from Worker-written state. The Lead inspects the returned evidence (files changed, test commands with observed results), re-runs key checks where cheap, and accepts or rejects the work; acceptance is a Lead decision, never a Worker claim.
 
 The Lead should decompose the stage into packages that together cover:
 1. Inspection of existing code, libraries, and datasets.
@@ -904,6 +914,9 @@ repository/
 │   │   │   └── agent.md       # discovered Pi subagent
 │   │   ├── research-advisor/
 │   │   │   └── agent.md       # discovered Pi subagent
+│   │   ├── harness-architector/   # discovered specialist (read-only domain consultant)
+│   │   ├── backend-architector/   # discovered specialist (read-only domain consultant)
+│   │   ├── frontend-architector/  # discovered specialist (read-only domain consultant)
 │   │   └── research-lead/
 │   │       └── agent.md       # appended to the main Pi session
 │   ├── plans/               # Worker plan files (implementation-workflow); written only when the package explicitly grants its own plan file — local scratch, not governance records
@@ -1296,7 +1309,7 @@ The Lead must be capable enough to implement and evaluate real experiments. A ch
 **Engineering Worker subagent**
 
 - Read/inspect tools plus `edit`, `write`, and scoped command execution (`bash`/`codemode`) limited to assigned paths, tests, and verification commands; the `implementation-workflow` skill for major-task execution.
-- No access to project plans, decisions, reviews, or state records — except the package's own plan file under `.pi/plans/` when the package explicitly grants it; bounded nested delegation only (`allowNestedSubagents`, depth ≤ 2, skill-directed, never to Advisor/Lead roles) — no unrestricted fan-out.
+- No access to project plans, decisions, reviews, or state records — except the package's own plan file under `.pi/plans/` when the package explicitly grants it; bounded nested delegation only (`allowNestedSubagents`, depth ≤ 2, skill-directed, never to the Lead role; Worker→Advisor calls permitted but wasteful and verdict-less) — no unrestricted fan-out.
 - Returns the Section 8.3 structured result for every assignment, including blocked or partial work; reports blockers in the returned result (no heartbeat channel in version 1), never to the human directly.
 
 Apply sandboxing, filesystem/network boundaries, secrets management, resource quotas, restricted external side effects, prompt-injection defenses, and human approval for irreversible or externally visible actions at the host/tool layer. Pi tool allowlists are not an operating-system sandbox. Retrieved pages, repositories, datasets, prompts, and dependencies are untrusted data—not instructions that may override either role contract.
@@ -1658,10 +1671,11 @@ The initial system should adopt the following decisions.
 
 | Decision | Recommendation |
 |---|---|
-| Number of role definitions | Exactly three: Research Lead host prompt, Research Advisor subagent, Engineering Worker subagent |
+| Number of role definitions | Three core roles (Research Lead host prompt, Research Advisor subagent, Engineering Worker subagent) plus three named specialist advisors (harness / backend / frontend-architector); closed set per P1 |
 | Research Lead | Main Pi session loaded with `.pi/agents/research-lead/agent.md` via `--append-system-prompt` |
 | Research Advisor | Read-only Pi child agent at `.pi/agents/research-advisor/agent.md` |
 | Engineering Worker | Bounded-writer Pi child agent at `.pi/agents/engineering-worker/agent.md` (nested delegation bounded: skill-directed, depth ≤ 2) |
+| Specialist advisors | Pre-existing read-only consultants (`harness-architector`, `backend-architector`, `frontend-architector`); called by Lead directly or by Worker nested; advise only, never gate/decide/implement |
 | Primary owner | Research Lead host agent |
 | Orchestration | Research Lead directly invokes `research-advisor` and `engineering-worker` through `pi-subagents` `subagent` tool |
 | Agent autonomy | Lead executes research work in the host session; Advisor provides bounded advice/review child runs; Worker executes only assigned implementation packages and returns observed evidence |
