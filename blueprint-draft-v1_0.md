@@ -50,13 +50,13 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 **P2. One accountable owner.** The Lead owns every research deliverable. Advisor feedback does not transfer implementation responsibility.
 
-**P3. Host-agent orchestration, disciplined lifecycle.** The Research Lead host prompt defines the four stages, mandatory Advisor reviews, bounded revision loops, and stop conditions. It uses `pi-subagents` to invoke the Advisor directly. These are role/prompt-level obligations, not application-enforced workflow gates; a separate Pi permission/policy extension would be needed for non-bypassable enforcement.
+**P3. Host-agent orchestration, dynamic dual-loop lifecycle.** The Research Lead host prompt defines a non-deterministic research cycle — PLANNING → IMPLEMENTATION → EVALUATION → ANALYSIS — with a bounded inner loop (IMPLEMENTATION ⇄ EVALUATION), a bounded outer loop (plan-cycle → ANALYSIS → revised plan-cycle), mandatory Advisor reviews at loop exits and gates, and explicit termination conditions. It uses `pi-subagents` to invoke the Advisor directly. These are role/prompt-level obligations, not application-enforced workflow gates; a separate Pi permission/policy extension would be needed for non-bypassable enforcement.
 
 **P4. Evidence over agreement.** Advisor endorsement is not proof of correctness. Tests, source verification, experimental observations, and reproducibility determine whether claims are supportable.
 
 **P5. Uncertainty-aware consultation.** The Lead assesses understanding and readiness before meaningful work. Unresolved uncertainty triggers Advisor consultation.
 
-**P6. Mandatory independent review.** Every completed research stage requires Advisor assessment, even when the Lead reports high confidence.
+**P6. Mandatory independent review.** Each loop exit (inner-loop exit, analysis/cycle-decision gate, plan gate) and the final report require Advisor assessment, even when the Lead reports high confidence. Individual inner-loop iterations use executable checks plus targeted consultation on triggers; they do not each require a full stage review.
 
 **P7. High-information consultation.** Advisor interactions use focused questions, decision-oriented briefs, and references to primary evidence rather than complete conversation histories.
 
@@ -128,7 +128,7 @@ Per-project research records, code, experiments, reviews, decisions, and reports
 
 ### 2.3 Host-led orchestration and review enforcement
 
-The Research Lead host prompt defines the stage order, readiness check, consultation triggers, mandatory stage reviews, bounded revision attempts, and escalation policy. For a consultation or stage gate, the Lead launches `research-advisor` directly through `pi-subagents`, supplies a focused decision/review packet, and inspects the child result. The Advisor runs with fresh context and read-only access to the actual cited artifacts. The Lead records the advice/review, verifies required tests and evidence, and then continues or revises its own work.
+The Research Lead host prompt defines the loop discipline (inner/outer loop routing, cycle counters, termination conditions), readiness check, consultation triggers, mandatory loop-exit and gate reviews, and escalation policy. For a consultation or stage gate, the Lead launches `research-advisor` directly through `pi-subagents`, supplies a focused decision/review packet, and inspects the child result. The Advisor runs with fresh context and read-only access to the actual cited artifacts. The Lead records the advice/review, verifies required tests and evidence, and then continues or revises its own work.
 
 Use a structured Advisor response contract and Pi structured output where appropriate; check the verdict and cited evidence rather than relying on free-form agreement. A valid schema or successful Advisor child run proves only response shape/run completion—not scientific correctness.
 
@@ -393,9 +393,9 @@ It does not eliminate correlated model failures, so independent tests and human 
 
 ## 5. Research workflow design
 
-### 5.1 Research lifecycle
+### 5.1 Research lifecycle — dynamic dual-loop (non-deterministic)
 
-The Research Lead host agent executes the four stages. It delegates consultation and independent stage review to the `research-advisor` Pi subagent through the `subagent` tool; it is not launched as a subagent itself.
+The research workflow is non-deterministic: the path through PLANNING, IMPLEMENTATION, EVALUATION, and ANALYSIS is decided at runtime from evidence, Advisor verdicts, loop counters, and the termination conditions. REPORTING is entered only when a termination condition fires; it is not a stage the Lead can advance to unilaterally. The Research Lead host agent owns all routing decisions. It delegates consultation and independent review to the `research-advisor` Pi subagent through the `subagent` tool; it is not launched as a subagent itself.
 
 ```text
 Human request
@@ -403,19 +403,36 @@ Human request
      v
 Research Lead host session
      |
-  1. PLANNING ---------> Advisor subagent review
-     |
-  2. IMPLEMENTATION ---> Advisor subagent review
-     |
-  3. EVALUATION -------> Advisor subagent review
-     |
-  4. REPORTING --------> Advisor subagent review
+  PLANNING ----------> Advisor plan-gate review
      |
      v
-Lead verifies evidence and delivers, revises, suspends, or asks the human
+  +---------------- OUTER CYCLE n (plan v_n) ----------------+
+  |  1. IMPLEMENTATION ⇄ EVALUATION   (inner loop)          |
+  |     iterate to best achievable outcome under plan v_n   |
+  |     |
+  |     v                                                    |
+  |  2. ANALYSIS + Advisor cycle review                     |
+  |     diagnose limitations of plan v_n vs. objective      |
+  |     |
+  |     +-- objective achieved ---> REPORTING               |
+  |     +-- unsolvable blocker ----> SUSPEND + honest report |
+  |     +-- stagnation (outer budget spent, no progress) --->|
+  |             SUSPEND + honest report                     |
+  |     +-- otherwise -------------> re-PLAN (v_n+1)         |
+  +----------------------------------------------------------+
 ```
 
-Before each meaningful task, the Lead assesses readiness. It investigates bounded factual/technical uncertainty directly, invokes the Advisor for material conceptual or methodological uncertainty, and asks the human when authority or essential information is missing. After completing each stage, it must launch a fresh-context Advisor review and resolve critical findings before moving on.
+**Inner loop — IMPLEMENTATION ⇄ EVALUATION.** Commits endeavor to achieve the best outcome under the current approved plan (plan v_n): build/fix, run smoke tests and evaluations, diagnose failures, and iterate. The loop stays inside the plan; it does not change research questions, hypotheses, metrics, or validity criteria. A fix that requires changing the plan (new hypothesis, different baselines/metrics, relaxed success criteria) must exit to ANALYSIS instead of silently redefining success inside the loop.
+
+**Outer loop — [PLANNING → IMPLEMENTATION → EVALUATION] → ANALYSIS → [PLANNING → IMPLEMENTATION → EVALUATION].** Commits endeavor to improve or resolve limitations of the initial plan: each outer cycle (n = 1, 2, …) runs the current plan through implementation and evaluation, then ANALYSIS diagnoses what limited the outcome (method, baselines, data, metrics, scope, assumptions) and proposes plan v_{n+1}. Re-planning requires an explicit cycle decision plus Advisor review; the Lead must not start the next outer cycle on its own authority.
+
+**Termination conditions (checked at every ANALYSIS gate, and immediately when discovered):**
+
+1. **Objective achieved** — the approved success criteria are met with valid evidence and Advisor concurrence → enter REPORTING, then COMPLETED.
+2. **Unsolvable blocker** — a fundamental methodological, safety, resource, or validity problem with no responsible workaround (Advisor `block` verdict the Lead cannot remediate, missing authority/data, invalidated core assumption) → SUSPEND, preserve all evidence, and report honestly (including negative/inconclusive findings). Ask the human where human authority or input could unblock; do not downgrade the blocker into an implicit success.
+3. **Stagnation despite committed effort** — significant effort has been committed without noticeable positive progress. Quantification: a per-project outer-cycle budget of **3 to 5 outer cycles** (default 4, set in the research charter; the human may override within [3, 5]). Each ANALYSIS records a progress verdict (`advanced | marginal | stalled | regressed`) with evidence. When the budget is spent without the objective met — or progress is `stalled`/`regressed` across consecutive cycles with no credible new lever — the Lead stops looping, preserves everything, and reports the best-supported conclusion (including inconclusive), rather than running more cycles to manufacture a positive result.
+
+Before each meaningful task, the Lead assesses readiness. It investigates bounded factual/technical uncertainty directly, invokes the Advisor for material conceptual or methodological uncertainty, and asks the human when authority or essential information is missing.
 
 ```text
 Lead task-readiness check
@@ -425,12 +442,23 @@ Lead task-readiness check
     +-- CONSULT ----> subagent(research-advisor) -> integrate advice
     +-- BLOCKED ----> pause and ask the human / report blocker
 
-Stage deliverables complete -> subagent(research-advisor) review
+Inner-loop iteration complete (tests + evaluation run)
     |
-    +-- approve + evidence checks pass -> next stage
-    +-- revise -> Lead remediates -> Advisor reviews again
-    +-- block / inconclusive / unresolved critical issue -> suspend or escalate
+    +-- executable checks pass, target met or attempt budget spent
+    |       -> exit inner loop -> ANALYSIS + Advisor cycle review
+    +-- fix stays within plan v_n -> next IMPLEMENTATION iteration
+    +-- fix requires plan change -> exit to ANALYSIS (no silent redefinition)
+
+ANALYSIS + Advisor cycle review
+    |
+    +-- approve + objective met -> REPORTING
+    +-- revise within same plan -> bounded inner-loop remediation, Advisor re-review
+    +-- replan approved + outer budget remains -> next outer cycle (plan v_n+1)
+    +-- block / inconclusive / unsolvable / outer budget spent without progress
+            -> SUSPEND, preserve evidence, report honestly / escalate to human
 ```
+
+**Loop accounting (mandatory project state).** The Lead tracks `outer_cycle` (current plan version n), `inner_attempt` (iteration count within the cycle), per-cycle progress verdicts, Advisor verdicts at each gate, and the remaining outer-cycle budget. Inner-loop iterations do not increment the outer counter; only an approved re-plan starts cycle n+1. Cycle and attempt limits are set in the charter and tracked in `project-state.json` (see 8.3–8.4).
 
 The Lead's host prompt and durable project records preserve lifecycle state across turns. `pi-subagents` manages the Advisor child run; it does not advance the research stage on the Lead's behalf or enforce the gate in application code.
 
@@ -518,9 +546,9 @@ The Lead should:
 
 Implementation approval does not establish that the scientific hypothesis is correct.
 
-### 5.4 Stage 3 — Evaluation and analysis
+### 5.4 Stage 3 — Evaluation (empirical evidence)
 
-**Objective:** Generate reproducible empirical evidence and assess whether the research hypotheses are supported.
+**Objective:** Generate reproducible empirical evidence under the frozen protocol. Interpretation, limitation diagnosis, and the continue/replan/report routing decision belong to Stage 4 (ANALYSIS), not to this stage.
 
 The Lead should:
 
@@ -534,8 +562,9 @@ The Lead should:
 8. Analyze uncertainty and effect sizes.
 9. Investigate failures and outliers.
 10. Execute approved ablations and robustness checks.
-11. Compare observations with competing hypotheses.
-12. Document deviations and exploratory findings.
+11. Document deviations and exploratory findings.
+
+This stage is the EVALUATION half of the inner loop: failed or weak results route back to IMPLEMENTATION for another iteration within the same plan (see 5.1), provided the fix does not change the plan. Differences from the previous inner attempt (what changed, what improved, what did not) are recorded per attempt so ANALYSIS can judge progress.
 
 **Required artifacts**
 
@@ -546,25 +575,56 @@ The Lead should:
 - Metrics and figures.
 - Ablation results.
 - Failure taxonomy.
-- Evidence-to-hypothesis assessment.
-- Threats-to-validity analysis.
+- Per-attempt evaluation notes (attempt id, code/config version, delta vs. previous attempt).
 
-**Advisor review questions**
+**Advisor review questions (inner-loop exit check)**
 
 - Were the evaluation protocols followed?
 - Are the measurements valid?
 - Are the comparisons fair?
 - Are the statistical methods appropriate?
 - Are observed differences practically meaningful?
-- Could the effects be explained by confounding variables?
 - Have negative results been preserved?
-- Do the findings actually support the stated conclusions?
+- Is the evidence package complete enough for ANALYSIS, or is another inner-loop iteration warranted?
 
-**Gate:** The Advisor must accept the validity of the evidence and its interpretation, or identify the corrective work needed.
+**Gate:** The evidence package must be complete and its integrity accepted (tests pass, provenance recorded) before ANALYSIS. Corrective implementation work routes back through the inner loop; plan changes are forbidden here — they require the ANALYSIS cycle decision.
 
 Do not modify a held-out evaluation set simply to obtain stronger results. Material protocol changes require a new experiment version and corresponding disclosure.
 
-### 5.5 Stage 4 — Reporting
+### 5.5 Stage 4 — Analysis (limitation diagnosis and cycle decision)
+
+**Objective:** Interpret the evaluated evidence, diagnose what limits the current plan, and make the explicit routing decision: report (objective achieved), suspend (blocker/stagnation), or re-plan the next outer cycle. This stage is the hinge of the outer loop.
+
+The Lead should:
+
+1. Compare observations with the hypotheses and competing explanations.
+2. Assess which claims the evidence supports, qualifies, or rejects.
+3. Diagnose the binding limitation of plan v_n (method, baselines, data, metrics, scope, assumptions, budget).
+4. Judge progress for this outer cycle: `advanced | marginal | stalled | regressed`, with evidence (metric deltas, resolved vs. open limitations, Advisor findings).
+5. Propose the cycle decision: `report | replan | suspend`, including plan v_{n+1} changes if re-planning (hypothesis/method/metric/scope deltas and why they should break the limitation).
+6. Check the termination conditions: objective met → REPORTING; unsolvable blocker → SUSPEND; outer-cycle budget spent without objective met (or consecutive `stalled`/`regressed` cycles with no credible new lever) → SUSPEND with honest best-supported conclusion.
+7. Record the decision, rationale, and evidence in `cycle-decision.json` before acting on it.
+
+**Required artifacts**
+
+- Evidence-to-hypothesis assessment.
+- Threats-to-validity analysis.
+- Limitation diagnosis for plan v_n.
+- Progress verdict with supporting evidence.
+- `cycle-decision.json` (`report | replan | suspend`, rationale, artifact/evidence refs, next-plan deltas if any).
+
+**Advisor review questions**
+
+- Do the findings actually support the stated conclusions, or do they exceed the evidence?
+- Could the effects be explained by confounding variables or alternative mechanisms?
+- Is the diagnosed limitation actually the binding one, or a symptom?
+- Would the proposed plan v_{n+1} plausibly resolve it, or just relabel it?
+- Is the progress verdict honest given the metric deltas?
+- Has a termination condition fired (objective achieved / unsolvable blocker / stagnation)?
+
+**Gate:** No new outer cycle starts and no REPORTING begins without an Advisor-reviewed cycle decision: the Advisor must concur on (or correct) the interpretation, the limitation diagnosis, the progress verdict, and the route. `block`/`inconclusive` verdicts, unresolved critical findings, or a spent outer-cycle budget suspend looping. A `replan` approval authorizes cycle n+1 under the recorded plan deltas; the next cycle's PLAN gate then approves the revised protocol before implementation resumes.
+
+### 5.6 Stage 5 — Reporting
 
 **Objective:** Produce a rigorous technical report whose claims can be traced to evidence.
 
@@ -884,8 +944,8 @@ Starting a new host session requires loading the Lead prompt again with the docu
 
 The project record should track:
 
-- Project ID, research direction, objectives, constraints, and resource budget.
-- Active stage, approved protocol version, task dependencies, acceptance criteria, and attempts.
+- Project ID, research direction, objectives, constraints, and resource budget (including `max_outer_cycles` in [3, 5]).
+- Active stage, `outer_cycle` / plan version, `inner_attempt`, approved protocol version, task dependencies, acceptance criteria, and attempts.
 - Research questions, hypotheses, decisions, evidence references, and artifact hashes.
 - Advisor consultations and review verdicts, including relevant Pi child run IDs.
 - Human decisions, unresolved findings, and project completion status.
@@ -900,18 +960,25 @@ Launch the Advisor directly through Pi Subagents with a focused task and fresh c
 
 Use the Section 4.4 decision contract for reviews. Where appropriate, request Pi structured output with a matching schema and check the verdict and evidence references. A valid schema or successful child run proves only response shape/run completion—not that the claims are true. Record the consultation result in project decisions/reviews before proceeding.
 
-### 8.3 Stage transitions and host-session resumption
+### 8.3 Loop-aware progression and host-session resumption
 
-The Research Lead follows this project-level progression:
+The Research Lead follows a loop-aware progression, not a linear stage chain. Outer-cycle count, inner-attempt count, progress verdicts, and termination status are first-class project state:
 
 ```text
-CREATED -> SCOPING -> PLANNING -> PLAN_REVIEW
-        -> IMPLEMENTING -> IMPLEMENTATION_REVIEW
-        -> EVALUATING -> EVALUATION_REVIEW
-        -> REPORTING -> REPORT_REVIEW -> COMPLETED
+CREATED -> SCOPING -> PLANNING -> PLAN_REVIEW (plan v_n approved)
+        -> [ INNER LOOP: IMPLEMENTING ⇄ EVALUATING ]
+             (inner_attempt = 1, 2, ... under plan v_n)
+        -> INNER_EXIT_REVIEW (evidence package complete?)
+        -> ANALYZING -> CYCLE_REVIEW (Advisor: interpretation +
+             limitation diagnosis + progress verdict + route)
+        -> REPORTING -> REPORT_REVIEW -> COMPLETED        (objective achieved)
+           |-> SUSPENDED (unsolvable blocker or stagnation budget spent)
+           |-> PLANNING (re-plan v_n+1, only if outer budget remains)
 ```
 
-At each gate, the Lead invokes the Advisor, evaluates the verdict, checks required tests/evidence, and records the decision. `revise` routes work back to the Lead; `block`, `inconclusive`, failed checks, unresolved human decisions, or exhausted review limits suspend progress. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
+At each gate, the Lead invokes the Advisor, evaluates the verdict, checks required tests/evidence, and records the decision. `revise` routes work back to the Lead within the same loop scope; `block`, `inconclusive`, failed checks, unresolved human decisions, exhausted inner-attempt limits, or a spent outer-cycle budget suspend progress. A `replan` route increments `outer_cycle` and resets `inner_attempt`; inner iterations never increment the outer counter. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state (including loop counters and the latest `cycle-decision.json`) and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
+
+**Termination enforcement.** The charter sets `max_outer_cycles` (integer in [3, 5], default 4; human-adjustable within range). The Lead checks the three termination conditions at every CYCLE_REVIEW and immediately when a blocker surfaces: (1) objective achieved → REPORTING; (2) unsolvable blocker → SUSPEND with full evidence preservation; (3) stagnation — outer budget spent without the objective met, or consecutive `stalled`/`regressed` progress verdicts with no credible new lever → SUSPEND and report the best-supported (possibly inconclusive) conclusion. No instruction may force a positive conclusion or an extra cycle once termination has fired.
 
 Pi run/session state helps recover Advisor consultations and inspect their results, but the host Research Lead's conversational state is not a durable workflow engine. A new host session reloads the prompt file, reads the project state, and resumes explicitly. Do not claim automatic transactionality or indefinite recovery for the whole research cycle.
 
@@ -919,6 +986,7 @@ Pi run/session state helps recover Advisor consultations and inspect their resul
 
 Use explicit project-level limits for:
 
+- Outer cycles: `max_outer_cycles` in [3, 5] (default 4), recorded in the charter; inner attempts per cycle (bounded, e.g. set per project).
 - Advisor consultations and repeated reviews.
 - Experiment runs and wall-clock duration.
 - Model token/cost usage and external API expenditure.
@@ -1266,12 +1334,12 @@ Implement:
 
 Implement and test through bounded research exercises:
 
-- The four stage sequence and mandatory Advisor review instructions in the Lead prompt.
+- The dynamic dual-loop sequence (inner IMPLEMENTATION ⇄ EVALUATION, outer plan-cycle → ANALYSIS → re-plan), loop counters, termination conditions, and mandatory Advisor review instructions in the Lead prompt.
 - Readiness checks, consultation triggers, fresh-context review packets, and bounded revise/suspend decisions.
 - Project-state updates, immutable artifact manifests, and resume instructions for a new host session.
 - Human clarification/escalation behavior and explicit disclosure that gates are host-agent policy, not application-enforced workflow.
 
-**Exit criterion:** The Lead follows the four stages, launches the Advisor at all mandatory gates, records verdicts/evidence, and does not proceed after unresolved blockers during acceptance exercises. This is behavioral evidence, not a hard runtime guarantee.
+**Exit criterion:** The Lead loops through inner/outer cycles with counter tracking, launches the Advisor at all mandatory gates, records verdicts/evidence and per-cycle progress, honors all three termination conditions (including stopping after the outer-cycle budget is spent), and does not proceed after unresolved blockers during acceptance exercises. This is behavioral evidence, not a hard runtime guarantee.
 
 ### Milestone 3 — Research execution tools
 
@@ -1366,15 +1434,13 @@ The Lead executes the benchmark and measures:
 - Inference cost.
 - Statistical uncertainty.
 
-Suppose the results suggest that semantically equivalent prompt variations have little effect on easy extraction tasks but substantial effects on unfamiliar reasoning tasks.
+Suppose the first evaluation shows weak exact-match grading confounded by answer formatting. The Lead iterates the **inner loop**: fix the grader (same plan, new `inner_attempt`), re-run, and record per-attempt deltas — without changing hypotheses or metrics.
 
-The Lead should not immediately conclude that different internal reasoning circuits were activated.
+Suppose the stabilized results suggest that semantically equivalent prompt variations have little effect on easy extraction tasks but substantial effects on unfamiliar reasoning tasks.
 
-The Advisor challenges that interpretation and asks whether variation in answer formatting, stochastic sampling, or computational budget can explain the observations.
+**Stage 4 — Analysis.** The Lead compares observations against the competing causal hypotheses and diagnoses the binding limitation of plan v_1 (e.g. sampling variability and reasoning-token budget confound the causal claim). The Advisor challenges the interpretation — asking whether variation in answer formatting, stochastic sampling, or computational budget explains the observations — and reviews the progress verdict and cycle decision. If the diagnosis calls for a design change the current plan cannot absorb (e.g. new controls or task families), the approved `replan` starts outer cycle 2 under plan v_2; otherwise the Lead iterates the inner loop again if inner-attempt budget remains. The loop repeats until the objective is met, an unsolvable blocker appears, or the outer-cycle budget (3–5 cycles) is spent.
 
-Additional experiments are conducted if justified by the expected information gain and remaining budget.
-
-### Stage 4 — Reporting
+### Stage 5 — Reporting
 
 The Lead prepares a report that distinguishes:
 
