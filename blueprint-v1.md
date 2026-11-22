@@ -3,9 +3,9 @@
 
 **Version:** 1.1 — Proposed Pi Subagents Architecture
 
-> Filename note: the file retains its historical `blueprint-draft-v1_0.md` name; the heading version above is authoritative.
+> Filename note: promoted from draft `blueprint-draft-v1_0.md`; this file (`blueprint-v1.md`) is now the authoritative working file.
 
-**Primary objective:** Build an autonomous, evidence-driven research system implemented by a Research Lead host prompt, a Research Advisor Pi subagent, and an Engineering Worker Pi subagent, using Pi's `pi-subagents` mechanism to convert a human-defined research direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report.
+**Primary objective:** Build an autonomous, evidence-driven research system implemented by a Research Lead host prompt, a Research Advisor Pi subagent, and an Engineering Worker Pi subagent, plus three specialist architect consultants and two OKF knowledge services (`okf-reader`, `okf-writer`) — eight named roles, one host, seven discoverable subagent definitions — using Pi's `pi-subagents` mechanism to convert a human-defined research direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report.
 
 ---
 
@@ -13,7 +13,7 @@
 
 ### 1.1 Mission
 
-The research system operates as a small autonomous research team with three specialized roles:
+The research system operates as a small autonomous research team with three core roles plus named advisors and knowledge services (closed set per P1 — §2.4 roster table):
 
 - **Research Lead:** The operational owner responsible for planning, investigating, implementing, experimenting, evaluating, analyzing, and reporting.
 - **Research Advisor:** The intellectual and methodological reviewer responsible for theoretical guidance, problem clarification, critical assessment, and quality assurance.
@@ -21,7 +21,7 @@ The research system operates as a small autonomous research team with three spec
 
 The human research director provides research directions, goals, constraints, and feedback when necessary.
 
-The three research roles are defined in `.pi/agents/`, but they occupy different positions in Pi:
+The core research roles are defined in `.pi/agents/` alongside specialist consultants and knowledge services (full roster: §2.4), but they occupy different positions in Pi:
 
 - **Research Lead** is the host/main Pi agent. Start the working session from the repository root with `pi --append-system-prompt .pi/agents/research-lead/agent.md`. It owns the research work and directly orchestrates Advisor consultations/reviews and Worker implementation assignments.
 - **Research Advisor** is a Pi subagent definition, invoked by the Research Lead through the `pi-subagents` `subagent` mechanism.
@@ -120,7 +120,7 @@ The Research Lead is the host/main agent, not a child agent. It maintains the ac
 
 ### 2.2 Pi deliverables and startup
 
-The initial target consists of three files under `.pi/agents/` and the existing Pi Subagents extension:
+The initial target consists of the core role definitions, specialist consultants, and knowledge services under `.pi/agents/` (full roster: §2.4; incremental milestones: §13) and the existing Pi Subagents extension:
 
 ```text
 .pi/
@@ -131,6 +131,11 @@ The initial target consists of three files under `.pi/agents/` and the existing 
 │   │   └── agent.md       # Pi subagent definition with frontmatter + prompt
 │   └── engineering-worker/
 │       └── agent.md       # Pi subagent definition with frontmatter + prompt
+│   ├── harness-architector/   # pre-existing specialist consultant (domain advice only)
+│   ├── backend-architector/   # pre-existing specialist consultant (domain advice only)
+│   ├── frontend-architector/  # pre-existing specialist consultant (domain advice only)
+│   ├── okf-reader/            # knowledge service: read-only hub retrieval (Lead-invoked only)
+│   └── okf-writer/            # knowledge service: bounded hub maintenance (Lead-invoked only)
 └── settings.json         # optional agent-discovery exclusion for research-lead
 ```
 
@@ -150,7 +155,7 @@ The Research Lead host prompt defines the loop discipline (inner/outer loop rout
 
 Use a structured Advisor response contract and Pi structured output where appropriate; check the verdict and cited evidence rather than relying on free-form agreement. A valid schema or successful Advisor child run proves only response shape/run completion—not scientific correctness.
 
-The host stays actively aware of every child run it launches — silent stalls are a first-class failure mode. After each dispatch the Lead confirms launch success promptly (status check against the recorded run ID), polls bounded background runs instead of assuming completion, and reconciles run/session artifacts on host resume. Any child failure (launch rejection such as an unresolvable model, mid-run error, timeout, missing result) is captured with its error text, recorded in project state, and surfaced to the human in-session immediately — HOLD plus direct notification, never silent retry beyond the capped rounds. Before any real research run, smoke-test all five child definitions with a trivial task so unresolvable models or discovery breaks surface when the fix is cheap.
+The host stays actively aware of every child run it launches — silent stalls are a first-class failure mode. After each dispatch the Lead confirms launch success promptly (status check against the recorded run ID), polls bounded background runs instead of assuming completion, and reconciles run/session artifacts on host resume. Any child failure (launch rejection such as an unresolvable model, mid-run error, timeout, missing result) is captured with its error text, recorded in project state, and surfaced to the human in-session immediately — HOLD plus direct notification, never silent retry beyond the capped rounds. Before any real research run, smoke-test all seven discoverable child definitions (advisor, worker, three architects, reader, writer) with a trivial task so unresolvable models or discovery breaks surface when the fix is cheap.
 
 This design intentionally relies on the host Research Lead to follow the mandatory lifecycle. `pi-subagents` does not enforce research-stage gates on direct host actions. If non-bypassable policy enforcement becomes a requirement, add a separately designed and tested Pi permission/policy extension; do not claim the role prompts alone provide hard enforcement.
 
@@ -187,7 +192,7 @@ Two knowledge services maintain the documentation system so the Lead orchestrate
 
 The Lead is their sole invoker and owns everything they produce until verified: reader gaps become investigation tasks, writer `needs_review`/`rejected` results become Lead triage, and even `committed` results get a Lead spot-check before gate reliance. Record-vs-artifact boundary: the writer curates concept records, indexes, and logs; execution artifacts (`src/`, experiment outputs, Worker plan files, manifests, `project-state.json`) are written directly by their producers and indexed — not rewritten — by the writer. Canonical format authority is the agent-local OKF v0.2 specification copies (`.pi/agents/okf-reader/spec/`, `.pi/agents/okf-writer/spec/`); the older v0.1 skill copy is background, not authority.
 
-The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Lead role. Direct Worker→Advisor consults are permitted but wasteful: they bypass the Lead's consultation plan and can never produce a gate verdict (verdicts are Lead-requested and manifest-bound only). The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
+The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Lead role. Direct Worker→Advisor consults are prohibited: they bypass the Lead's consultation plan and can never produce a gate verdict (verdicts are Lead-requested and manifest-bound only). Worker uncertainty goes to its skills, to nested architect consults, or back to the Lead as BLOCKED. The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
 
 ---
 
@@ -397,7 +402,7 @@ Every mandatory gate review must return a structured decision bound to the exact
 
 **Verdicts do not route by themselves.** The Lead selects the route from the verdict plus the termination check, using only the legal combinations in the authoritative transition table (§8.4): `approve` enables the gate's forward route; `revise` returns to a named remediation state with a bounded re-review (default max 2 revise rounds per gate, then HOLD and escalate); `inconclusive` permits bounded evidence gathering plus one re-review, then HOLD if still unresolved — never a direct terminal stop; `block` pauses work into HOLD for triage, and only a confirmed-unresolvable blocker (or human decision) converts HOLD into terminal SUSPENDED.
 
-**Fail-closed validation.** The Lead must validate every gate response before acting on it: parseable against the schema above, `gate` matching the gate actually invoked, and `review_target` matching the submitted manifest version. Any failure — malformed output, missing verdict, wrong gate, stale manifest — is a no-verdict: the Lead records it, issues a bounded re-request (default max 2), and HOLDs the gate; if re-requests are exhausted or the Advisor is unavailable, the Lead HOLDs and escalates to the human. Silence, an expired run, or a `complete` run status is never approval. A verdict is invalidated by any later implementation change to the files it covered; per-attempt checks re-validate, and interface/contract-level changes require a fresh gate review.
+**Fail-closed validation.** The Lead must validate every gate response before acting on it: parseable against the schema above, `gate` matching the gate actually invoked, and `review_target` matching the submitted manifest version. Any failure — malformed output, missing verdict, wrong gate, stale manifest — is a no-verdict: the Lead records it, issues a bounded re-request (default max 2), and HOLDs the gate; if re-requests are exhausted or the Advisor is unavailable, the Lead HOLDs and escalates to the human. The same fail-closed rule covers knowledge-service results at gates (§8.7): no gate advances on an unvalidated or stale service result. Silence, an expired run, or a `complete` run status is never approval. A verdict is invalidated by any later implementation change to the files it covered; per-attempt checks re-validate, and interface/contract-level changes require a fresh gate review.
 
 **Bounded evidence expansion.** When the Advisor requests more evidence, the Lead supplies it in at most 2 expansion rounds per gate. A follow-up review — whether it resumes context or starts a fresh child — must carry the original rubric, the prior findings, and the same manifest version (or a new versioned manifest if evidence changed). Advisory consultations and mandatory gate verdicts are labeled differently in project records; advice never satisfies a gate unless the call explicitly applied the gate rubric to the submitted manifest.
 
@@ -959,7 +964,7 @@ repository/
     └── project-state.json            # the Lead's live ledger: stage, outer_cycle, inner_attempt, budgets, HOLD/SUSPENDED status
 ```
 
-`change-and-progress-logs/` is the centralized governance hub of the research project: charter, planning, reviews, and decisions live nowhere else, and `index.md` is the master table the Lead maintains (one row per charter version, plan version, review verdict, decision, and cycle, each pointing at its artifact) so any state — past or present — is retrievable for audits, session resumption, and REPORT_GATE confirmation evidence. The hub is an OKF v0.2 bundle: the Lead tasks `okf-writer` with all concept-record, index, and log writes (with `validate_okf.py` bundle-check before publication) and tasks `okf-reader` with evidence retrieval; the Lead keeps direct ownership of `project-state.json` counters and git checkpoints.
+`change-and-progress-logs/` is the centralized governance hub of the research project: charter, planning, reviews, and decisions live nowhere else, and `index.md` is the master table — content and acceptance owned by the Lead, mechanical updates performed by `okf-writer` — (one row per charter version, plan version, review verdict, decision, and cycle, each pointing at its artifact) so any state — past or present — is retrievable for audits, session resumption, and REPORT_GATE confirmation evidence. The hub is an OKF v0.2 bundle: the two local v0.2 specification copies are verified identical, so either is authoritative (the older v0.1 skill copy is background only). Within the hub, markdown concept records, indexes, and logs are OKF-validated bundle content; `cycle-decision.json`, `artifact-manifest.json`, and `project-state.json` are machine-owned JSON artifacts — indexed, never rewritten as concepts — and the Lead tasks `okf-writer` with all concept-record, index, and log writes (with `validate_okf.py` bundle-check before publication) and tasks `okf-reader` with evidence retrieval; the Lead keeps direct ownership of `project-state.json` counters and git checkpoints.
 
 The project workspace is the durable source of truth. Pi subagent session/run artifacts and temporary outputs are useful for consultation history, but their retention is configurable and they are not a permanent research archive. The Lead copies or references durable findings in project records before relying on them. Large datasets, binaries, and experiment outputs may be stored outside Git in content-addressed artifact storage; manifests should record immutable locations and hashes.
 
@@ -1091,20 +1096,23 @@ CREATED -> SCOPING -> PLANNING -> PLAN_GATE (plan v_n approved?)
 
 | Gate | Verdict | Legal routes → next state |
 |---|---|---|
-| PLAN_GATE | `approve` | `continue` → inner loop under plan v_n |
-| PLAN_GATE | `revise` | `remediate-plan` → PLANNING, then re-review (max 2 rounds, then HOLD + escalate) |
-| PLAN_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
-| PLAN_GATE | `block` | HOLD triage immediately; SUSPENDED + status report only if confirmed unresolvable |
+| PLAN_GATE (plan approval) | `approve` of plan v_n | `continue` → inner loop under plan v_n (covers the implementation baseline per §5.1) |
+| PLAN_GATE (readiness re-approval) | `approve` of the post-change implementation baseline | `continue` → full evaluation (required after any interface/contract/validity-assumption change; §5.1) |
+| PLAN_GATE (either phase) | `revise` | `remediate-plan` → PLANNING, then re-review of the same target (max 2 rounds, then HOLD + escalate) |
+| PLAN_GATE (either phase) | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
+| PLAN_GATE (either phase) | `block` | HOLD triage immediately; SUSPENDED + status report only if confirmed unresolvable |
 | INNER_EXIT_GATE | `approve` (complete package) | `continue` → ANALYSIS |
 | INNER_EXIT_GATE | `approve` (diagnosis-only package) | `continue-to-diagnose` → ANALYSIS; package is barred from supporting success claims |
 | INNER_EXIT_GATE | `revise` | `remediate-implementation` → bounded inner-loop rework, then re-review (max 2 rounds, then HOLD + escalate) |
 | INNER_EXIT_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
 | INNER_EXIT_GATE | `block` | HOLD triage immediately |
 | CYCLE_GATE | `approve` + objective met | `report` → REPORTING |
-| CYCLE_GATE | `approve`/`revise` + objective unmet, replan justified, budget remains | `replan` → PLAN_GATE for v_n+1 (charges the new cycle) |
+| CYCLE_GATE | `approve` + objective unmet, replan justified, budget remains | `replan` → PLAN_GATE for v_n+1 (charges the new cycle at authorization; a failed plan gate does not refund it) |
 | CYCLE_GATE | `revise`, fix stays within plan | `remediate-implementation` → bounded inner-loop rework, then INNER_EXIT_GATE re-review |
+| CYCLE_GATE | `revise`, remediation requires a plan change | `remediate-plan` → PLANNING draft v_n+1 → PLAN_GATE review (bounded rounds); `replan` authorizes only on PLAN_GATE `approve` — a `revise` never routes to `replan` directly |
 | CYCLE_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
-| CYCLE_GATE | `block`, or cap reached, or early-stagnation rule fired | HOLD triage → SUSPENDED + status report (SUSPENDED is terminal; HOLD needs a human decision to resume or convert) |
+| CYCLE_GATE | `block` | HOLD triage immediately → SUSPENDED + status report only if confirmed unresolvable or the human so decides (resume needs a human decision) |
+| CYCLE_GATE | cap reached or early-stagnation rule fired, objective unmet | SUSPENDED + status report directly — mechanical Lead conversion per §8.6, no HOLD, no human conversion required |
 | REPORT_GATE | `approve` | `complete` → COMPLETED (final research report: executive summary, read alone, preserves the main limitation, decision-relevant negatives, and the action boundary; Advisor confirms consistency with evidence) |
 | REPORT_GATE | `revise` | `remediate-report` → REPORTING, then re-review (max 2 rounds, then HOLD + escalate) |
 | REPORT_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
@@ -1112,6 +1120,8 @@ CREATED -> SCOPING -> PLANNING -> PLAN_GATE (plan v_n approved?)
 | Any gate | no-verdict (invalid output, stale manifest, unavailable Advisor) | HOLD + bounded re-request (max 2), then escalate to human |
 
 A `replan` route increments `outer_cycle` and resets `inner_attempt`; inner iterations never increment the outer counter. Inner-attempt exhaustion does not stop the project by itself: it forces INNER_EXIT_GATE with the package marked incomplete-for-diagnosis, so ANALYSIS can diagnose the failure instead of being starved of it. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state (including loop counters, HOLD/SUSPENDED status, and the latest `cycle-decision.json`) and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
+
+**Precedence.** At CYCLE_GATE the validated-objective-achievement check runs first: a met objective takes the `report` route even on the final allowed cycle. Only then do the cap and early-stagnation rules apply. On the final cycle with no conclusive verdict after bounded re-review, the gate HOLDs and escalates — the Lead never manufactures a `report` or an extra cycle.
 
 **Termination enforcement.** The charter sets `max_outer_cycles` (integer in [3, 5], default 4; human-adjustable within range). The Lead checks the three termination conditions at every CYCLE_GATE and immediately when a blocker surfaces: (1) validated objective achievement → `report` route (checked first, even on the final allowed cycle); (2) unsolvable blocker → HOLD triage, then SUSPENDED with full evidence preservation and a status report if confirmed; (3) stagnation — outer cap reached without the objective met, or the early-stagnation rule (default 2 consecutive `stalled`/`regressed` cycles with no credible new lever, charter-adjustable) → SUSPENDED with the best-supported (possibly inconclusive) conclusion. A SUSPENDED stop produces a status report (what was tried, what failed, preserved evidence); it never produces an approved final research report. No instruction may force a positive conclusion or an extra cycle once termination has fired.
 
@@ -1154,6 +1164,9 @@ The Lead delegates documentation mechanics to the two knowledge services (§2.4)
 - **Reader for evidence assembly.** Task `okf-reader` with pre-gate evidence gathering (“minimum sufficient evidence for CYCLE_GATE on X”) and mid-run director questions. Its RESULT.md JSON carries the searched scope — never treat a no-match as absence beyond that scope. Gaps are Lead investigation tasks, not stoppers-by-default and never silent skips at gates.
 - **Writer for record mechanics.** Task `okf-writer` with decision records, brief-refresh mechanics, index/log updates, and review-record filing, stating exact intended changes and scope. On `committed`, spot-check before gate reliance; on `needs_review`/`rejected`, triage (supply evidence, narrow scope, or record the conflict) — never silently override or fabricate missing metadata. The writer never commits; git checkpoints stay the Lead's.
 - **Content stays the Lead's.** The services shape records; judgments (brief assessments, decision rationale, verdict intake, acceptance) originate with the Lead and pass through the writer as content, not as service inference.
+- **Validate results, not just files.** Name the entry points: writer output is validated with `validate_okf.py` (bundle check on a staged copy before publication) and its result envelope with `validate_result.py`; reader output with `validate_result.py` against its RESULT contract. The Lead additionally checks every returned result against the request and target revision (right files, right versions, searched scope as stated). A malformed or stale result, a failed or unavailable validator, or missing **required** evidence holds the dependent gate; an explicitly nonessential gap may stand open with its scope recorded. The Advisor still inspects primary evidence — a structurally valid result never establishes sufficiency, freshness, or truth.
+- **Serialize hub mutations.** At most one in-flight hub mutation per project: bind each writer operation to a base revision and request ID, validate before publishing, and checkpoint the verified records plus project state before advancing the gate. `committed` is a service publication outcome, never a Git commit. On interruption, reconcile or quarantine the partial update before retrying — never advance a gate on an ambiguous checkpoint. Enforce single-session ownership of the hub (or a lease if multiple sessions can write); concurrent packages already require isolated worktrees (§10.4).
+- **Service-outage fallback.** The Lead↔director path stays direct and never waits on a service: urgent notices, stop-order handling, and authorization interpretation go chat-first, with the hub filing disclosed as pending and reconciled by decision ID on resume. No dependent progression until the filing lands. For current-status questions, compare reader provenance/timestamps against Lead-owned live state and say which is newer. A recoverable child failure is FYI; DECISION-REQUIRED follows only when recovery is exhausted or human authority is needed.
 
 ---
 
@@ -1252,7 +1265,7 @@ Re-planning may change hypotheses, methods, baselines, metrics, or scope — but
 
 ### 10.1 Target platform and runtime
 
-**Use the main Pi session as the Research Lead host, and use `pi-subagents` to launch the Research Advisor and the Engineering Worker as children.** The initial implementation consists of three files under `.pi/agents/`; it does not include a separate workflow script, a Research Lead child agent, or another agent framework.
+**Use the main Pi session as the Research Lead host, and use `pi-subagents` to launch children strictly per the §11.1 caller→callee roster (Advisor, Worker, three architects, reader, writer).** The initial implementation covers the role definitions under `.pi/agents/` incrementally (Milestone 1: core three; architects, reader, writer seated by Milestone 1 exit probes); it does not include a separate workflow script, a Research Lead child agent, or another agent framework.
 
 | Role/runtime element | Pi implementation | Responsibility |
 |---|---|---|
@@ -1284,9 +1297,10 @@ The Lead prompt is not a child agent and should not be launched with `subagent`.
 
 1. The exact frontmatter keys the deployed `pi-subagents` honors (`tools`, `model`, `thinking`, `systemPromptMode`, `inheritProjectContext`, `defaultContext`, `acceptanceRole`, aliases) — the reference file's keys are examples, not proof.
 2. What a fresh child context excludes (host conversation, host system prompt) and still loads (project context files, skills, tool providers) for each child.
-3. The effective tool list of each child at launch (inspect, don't assume), including that no delegation-capable tool is reachable from the Advisor child, and that the Worker child's only delegation path is the bounded `allowNestedSubagents` grant capped at depth 1.
+3. The effective tool list of each child at launch (inspect, don't assume), including that no delegation-capable tool is reachable from the Advisor, reader, or writer children. Allowed delegation edges are Lead → {advisor, worker, architects, reader, writer} and Worker → {architects} nested — specify edges first, then verify the deployed `maxSubagentDepth` setting name, scope, and depth-counting convention against the running system so that exactly the Worker→architect edge occurs and nothing deeper; do not assume the setting is honored. Caller-specific denial that is not runtime-enforced is labeled prompt policy, not a restriction.
 4. The `agentExcludeDirs` path base and its effect on discovery vs. direct prompt loading.
 5. Structured-output support and schema-constraint behavior for gate verdicts (§4.4, §11.2–11.3).
+6. The effective provider/model ID and override source for every one of the seven discoverable roles (advisor, worker, three architects, reader, writer), resolved from the actual call sites at preflight. An unresolved pin or unapproved fallback does not count as a successful launch.
 
 The Research Lead's tools come from the main Pi host configuration. Ensure the `pi-subagents` extension and its `subagent` tool are available in that session. The Advisor's frontmatter should set an explicit read-only tool allowlist (for example `read`, `grep`, `find`, `ls`, plus selected read-only evidence providers), project-context inheritance as needed, a separately configurable model, and no nested subagent delegation. The Worker's frontmatter should set a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution such as `bash`/`codemode` for assigned paths and tests), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, a bounded nested-delegation grant (`allowNestedSubagents: true`, `maxSubagentDepth: 2`), and a separately configurable model. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
 
@@ -1298,7 +1312,7 @@ The Lead owns all stage sequencing, task execution, remediation, project-state u
 
 ### 10.4 Host-led Worker delegation
 
-For implementation work, the Lead calls `subagent` with `agent: "engineering-worker"` and a focused `task` containing the work package: exact scope, allowed file paths, governing specs, acceptance criteria, verification commands, and the attempt/deadline budget. Use a fresh child context so the Worker implements from the package rather than inheriting the Lead's exploratory reasoning. Prefer one Worker child per work package. Default to one active Writer per workspace; concurrent packages require isolated workspaces (one worktree per package) plus Lead-controlled integration in recorded order against each package's `base_revision`. Before every dispatch, persist the assignment ID, child run ID, and workspace ref in project state; on host resume, reconcile live runs and unaccepted changes against those refs before retrying, reassigning, or advancing. The Lead must collect each result, inspect files changed and observed verification output (re-running key checks where cheap), and record acceptance before the code enters the evidence base. Never treat Worker dispatch, a `complete` run status, or the Worker's own success claim as acceptance.
+For implementation work, the Lead calls `subagent` with `agent: "engineering-worker"` and a focused `task` containing the work package: exact scope, allowed file paths, governing specs, acceptance criteria, verification commands, and the attempt/deadline budget. Use a fresh child context so the Worker implements from the package rather than inheriting the Lead's exploratory reasoning. Prefer one Worker child per work package. Default to one active Writer per workspace; concurrent packages require isolated workspaces (one worktree per package) plus Lead-controlled integration in recorded order against each package's `base_revision`. Before every dispatch, persist the intent (assignment ID, workspace ref) in project state; attach the child run ID when the runtime returns it — never assume it is known before dispatch. On host resume, reconcile live runs and unaccepted changes against those refs before retrying, reassigning, or advancing. The Lead must collect each result, inspect files changed and observed verification output (re-running key checks where cheap), and record acceptance before the code enters the evidence base. Never treat Worker dispatch, a `complete` run status, or the Worker's own success claim as acceptance.
 
 Do not add `.pi/workflows/research-lifecycle.js` as a required component in version 1. A reusable `pi-subagents` scripted workflow may be considered later for a well-defined mechanical sequence, but it is not the host's role and must not replace the Research Lead as lifecycle owner.
 
@@ -1311,10 +1325,13 @@ Do not add `.pi/workflows/research-lifecycle.js` as a required component in vers
 | Host prompt | `.pi/agents/research-lead/agent.md` |
 | Advisor subagent | `.pi/agents/research-advisor/agent.md` |
 | Worker subagent | `.pi/agents/engineering-worker/agent.md` |
+| Specialist architects | `.pi/agents/{harness,backend,frontend}-architect/agent.md`; Lead- or Worker-nested consults per §2.4 |
+| Knowledge services | `.pi/agents/okf-reader/agent.md`, `.pi/agents/okf-writer/agent.md`; Lead-invoked only, §8.7 |
 | Agent discovery | Project `.pi/settings.json`; exclude the Lead prompt directory if it would be discovered as a child |
 | Lead model | Main Pi session's configured model; selected by the operator |
 | Advisor model | Independently configurable in Advisor frontmatter or `subagents.agentOverrides` |
 | Worker model | Independently configurable in Worker frontmatter or `subagents.agentOverrides`; strong enough to write correct code and tests, since flawed output costs Lead verification and rework |
+| Architect / reader / writer models | Independently configurable per role (frontmatter or `subagents.agentOverrides`); effective provider/model ID and override source recorded at preflight per §10.2 item 6 |
 | Source control | Git; use isolated worktrees when concurrent or risky code changes require them |
 | Project state and artifacts | Versioned project files plus immutable external artifact storage for large outputs |
 | Experiment analysis | Python, pandas, SciPy, and task-specific libraries where appropriate |
@@ -1341,7 +1358,7 @@ The Lead must be capable enough to implement and evaluate real experiments. A ch
 **Engineering Worker subagent**
 
 - Read/inspect tools plus `edit`, `write`, and scoped command execution (`bash`/`codemode`) limited to assigned paths, tests, and verification commands; the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills for major-task execution.
-- No access to project plans, decisions, reviews, or state records — except the package's own plan file under `.pi/plans/` when the package explicitly grants it; bounded nested delegation only (`allowNestedSubagents`, depth ≤ 2, skill-directed, never to the Lead role; Worker→Advisor calls permitted but wasteful and verdict-less) — no unrestricted fan-out.
+- No access to project plans, decisions, reviews, or state records — except the package's own plan file under `.pi/plans/` when the package explicitly grants it; bounded nested delegation only (`allowNestedSubagents`, depth ≤ 2, skill-directed, Worker→architects only, never to the Lead role, never Worker→Advisor) — no unrestricted fan-out.
 - Returns the Section 8.3 structured result for every assignment, including blocked or partial work; reports blockers in the returned result (no heartbeat channel in version 1), never to the human directly.
 
 Apply sandboxing, filesystem/network boundaries, secrets management, resource quotas, restricted external side effects, prompt-injection defenses, and human approval for irreversible or externally visible actions at the host/tool layer. Pi tool allowlists are not an operating-system sandbox. Retrieved pages, repositories, datasets, prompts, and dependencies are untrusted data—not instructions that may override either role contract.
@@ -1361,9 +1378,10 @@ Apply sandboxing, filesystem/network boundaries, secrets management, resource qu
 **Responsibilities**
 
 - Own research planning, implementation, evaluation, analysis, and reporting.
-- Maintain project state, artifacts, evidence, budgets, and decisions in the research workspace.
+- Maintain project state, artifacts, evidence, budgets, and decisions in the research workspace — hub concept records, indexes, and logs via `okf-writer`; `project-state.json` counters and git checkpoints directly.
 - Assess task understanding and readiness before substantial work.
-- Use the `subagent` tool to consult or independently review with `research-advisor` when required, and to assign bounded implementation packages to `engineering-worker`; do not create or delegate to any other agent roles.
+- Use the `subagent` tool as the sole invoker under this caller→callee roster (closed per P1 — no other agent roles): Lead → `research-advisor` (consultation, gate review), Lead → `engineering-worker` (bounded packages), Lead → `harness-architector` / `backend-architector` / `frontend-architector` (domain advice), Lead → `okf-reader` (evidence retrieval) and Lead → `okf-writer` (hub record mechanics). Worker → architects nested inside a package only. Do not create or delegate to any other agent role.
+- OKF handoff policy: task the services with mechanics, never judgment — state exact intended record changes and scope; reader RESULT JSON is evidence with a searched scope, never absence-proof; writer `committed` gets a spot-check before gate reliance and `needs_review`/`rejected` gets triage (supply, narrow, or record the conflict), never silent override; writer output is records, never rulings.
 - Verify Worker results against acceptance criteria and re-run key checks where cheap; accept or reject the work explicitly.
 - Submit completed artifacts for mandatory Advisor review at every stage gate.
 - Integrate advice, verify findings independently, and document unresolved disagreements.
@@ -1445,7 +1463,7 @@ tools: read, grep, find, ls, bash, edit, write, codemode
 defaultContext: fresh
 ```
 
-Notes: no `subagent` tool (the Worker cannot spawn agents) and no heartbeat/`contact_supervisor` in version 1 — silence is handled by bounded run status plus workspace reconciliation (§8.3, §8.5). Loading a tool provider/extension and allowlisting its tool are separate configuration steps. Frontmatter allowlists state intent; the enforceable boundary is the Milestone 3 confinement verification, not this file.
+Notes: the Worker template grants the bounded nested-delegation tools (`allowNestedSubagents`, `maxSubagentDepth: 2`) for Worker→architect consults only — no `contact_supervisor`, no heartbeat in version 1. Silence is handled by bounded run status plus workspace reconciliation (§8.3, §8.5). Loading a tool provider/extension and allowlisting its tool are separate configuration steps. Frontmatter allowlists state intent; the enforceable boundary is the Milestone 3 confinement verification, not this file.
 
 **Role:** Bounded research implementation worker, invoked as the `engineering-worker` Pi subagent.
 
@@ -1559,7 +1577,7 @@ Test the system against deliberate failures.
 | Ambiguous director reply | Lead asks one focused question, never guesses; reads back the recorded effect; closes or supersedes the entry and refreshes the brief |
 | Writer returns `needs_review` | Lead triages: supply missing evidence/authorization, narrow scope, or record the conflict — never silently override or fabricate metadata |
 | Reader reports gaps | Gaps become investigation tasks; gates never rely on absent evidence |
-| Validator reports structural errors | Fix records before gate reliance; a passing validator is form-only, never evidence truth |
+| Malformed/stale service result or failed/unavailable validator at a gate | HOLD the dependent gate; an explicitly nonessential gap may stand open with scope recorded |
 | Experiment results are inconsistent | Investigate variability and validity |
 | Lead host session or Pi process is interrupted | Start a new host session with the Research Lead prompt, reconcile project state/artifacts, and resume explicitly; recover an Advisor child run only when supported by `pi-subagents`, otherwise relaunch from durable evidence |
 | Worker run interrupted after changing files but before acceptance | Treat as no-result: reconcile the workspace against the assignment `base_revision`, quarantine unaccepted changes, re-verify from the recorded revision, then retry or reassign — never accept orphaned mutations |
@@ -1578,11 +1596,12 @@ Implement:
 - `.pi/agents/research-lead/agent.md`, loaded into the main Pi session with `--append-system-prompt`.
 - `.pi/agents/research-advisor/agent.md` as the Pi subagent definition.
 - `.pi/agents/engineering-worker/agent.md` as the bounded-writer Pi subagent definition (modeled on `implementation-workflow-worker`).
-- Clear tool boundaries: Lead owns execution, acceptance, and decisions; Advisor is read-only and cannot spawn more agents; Worker is restricted by prompt rules to granted paths, assigned verification, observed-evidence returns, and no agent spawning — prompt-level only in this milestone (see confinement note below).
+- Clear tool boundaries: Lead owns execution, acceptance, and decisions; Advisor is read-only and cannot spawn more agents; Worker is restricted by prompt rules to granted paths, assigned verification, observed-evidence returns, and Worker→architect nested consults only (no Worker→Advisor, no fan-out) — prompt-level only in this milestone (see confinement note below).
+- `.pi/agents/okf-reader/agent.md` and `.pi/agents/okf-writer/agent.md` as the knowledge-service definitions (Lead-invoked only; §8.7 delegation contract).
 - Project state/artifact layout, the Advisor consultation/review contract, and the Worker assignment/acceptance contract (Section 8.3).
 - Agent-discovery exclusion for the Lead prompt directory if its format would otherwise make it a child agent.
 
-**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor returns read-only inspection evidence; the Worker returns structured evidence for granted-path work; the Lead independently routes and consumes consultations and work packages. This exit is behavioral evidence only: nothing in Milestone 1 proves the Worker cannot touch out-of-scope paths — prompt rules are not enforcement. Enforceable confinement (denied out-of-scope read/write/execution/delegation tests, named enforcement point) is verified in Milestone 3 before any write-capable deployment beyond exercises.
+**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor returns read-only inspection evidence; the Worker returns structured evidence for granted-path work; the Lead independently routes and consumes consultations and work packages. All seven discoverable definitions (advisor, worker, three architects, reader, writer) resolve by canonical name from their authorized call sites, with effective provider/model ID and override source recorded per role — an unresolved pin or unapproved fallback does not count as a successful launch, and all three Worker→architect routes verify. This exit is behavioral evidence only: nothing in Milestone 1 proves the Worker cannot touch out-of-scope paths — prompt rules are not enforcement. Enforceable confinement (denied out-of-scope read/write/execution/delegation tests, named enforcement point) is verified in Milestone 3 before any write-capable deployment beyond exercises.
 
 ### Milestone 2 — Host-led lifecycle discipline
 
@@ -1602,7 +1621,7 @@ Implement:
 - Trusted literature/search tools and source provenance.
 - Repository and project artifact access.
 - Isolated code execution, automated testing, and experiment runner.
-- Worker confinement verification: denied out-of-scope read/write/execution/delegation probes against the named enforcement point (host/tool-layer sandbox and workspace isolation); read permission verified separately from modify permission. No write-capable Worker deployment beyond exercises until these probes pass.
+- Worker confinement verification: denied out-of-scope read/write/execution/delegation probes against the named enforcement point (host/tool-layer sandbox and workspace isolation); read permission verified separately from modify permission. Denied delegation probes include Worker→Advisor, Worker→reader/writer, and any non-Lead invocation of the knowledge services. No write-capable Worker deployment beyond exercises until these probes pass.
 - Immutable experiment configurations/results and artifact manifests.
 - Explicitly scoped extensions/MCP tools for the host, Advisor, and Worker.
 
@@ -1715,7 +1734,7 @@ The initial system should adopt the following decisions.
 | Engineering Worker | Bounded-writer Pi child agent at `.pi/agents/engineering-worker/agent.md` (nested delegation bounded: skill-directed, depth ≤ 2) |
 | Specialist advisors | Pre-existing read-only consultants (`harness-architector`, `backend-architector`, `frontend-architector`); called by Lead directly or by Worker nested; advise only, never gate/decide/implement |
 | Primary owner | Research Lead host agent |
-| Orchestration | Research Lead directly invokes `research-advisor` and `engineering-worker` through `pi-subagents` `subagent` tool |
+| Orchestration | Research Lead directly invokes children strictly per the §11.1 caller→callee roster through the `pi-subagents` `subagent` tool |
 | Agent autonomy | Lead executes research work in the host session; Advisor provides bounded advice/review child runs; Worker executes only assigned implementation packages and returns observed evidence |
 | Review enforcement | Mandatory instruction-level gates (verdict/route table §8.4, fail-closed validation §4.4) in the Lead prompt; not application-enforced unless a separate policy extension is added |
 | Confidence assessment | Structured readiness records, not arbitrary scores |
