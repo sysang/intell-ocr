@@ -908,26 +908,34 @@ repository/
 │   │       └── agent.md       # appended to the main Pi session
 │   └── settings.json          # agent discovery + model overrides
 └── research-projects/<project-id>/
-    ├── charter/
-    │   ├── research-charter.md
-    │   └── scope-and-constraints.md
+    ├── change-and-progress-logs/   # CENTRAL GOVERNANCE HUB — the single authoritative record of how the project evolves; every gate decision, cycle transition, charter or planning change, review verdict, and progress checkpoint lands here (or is indexed here) before it counts as project truth
+    │   ├── index.md                # master index table governing the whole hub: every entry (charter version, plan version, review verdict, decision, cycle) is a row pointing at its artifact; the retrieval map for audits, resumption, and REPORT_GATE confirmation
+    │   ├── charter/
+    │   │   ├── research-charter.md
+    │   │   └── scope-and-constraints.md
+    │   ├── planning/
+    │   │   ├── hypotheses.md
+    │   │   ├── methodology.md
+    │   │   ├── evaluation-plan.md
+    │   │   └── roadmap.md
+    │   ├── reviews/{planning,src,evaluation,analysis,reporting}/
+    │   └── decisions/{decision-log.md,cycle-decision.json}
     ├── literature/
     │   ├── sources.jsonl
     │   ├── literature-review.md
     │   └── evidence-notes/
-    ├── planning/
-    │   ├── hypotheses.md
-    │   ├── methodology.md
-    │   ├── evaluation-plan.md
-    │   └── roadmap.md
-    ├── implementation/{src,tests,configs}/
-    ├── experiments/{manifests,raw-results,analysis}/
-    ├── reviews/{planning,implementation,evaluation,analysis,reporting}/
-    ├── decisions/{decision-log.md,cycle-decision.json}
+    ├── src/                            # ALL implementation lives under this tree and nowhere else: every executable artifact (methods, tests, evals, experiments, configs) is created, run, and versioned here
+    │   ├── methods/                  # research implementations under study (candidate approaches, baselines under test)
+    │   ├── tests/                    # unit and integration tests for methods and harnesses; per-attempt checks run from here
+    │   ├── evals/                    # evaluation harnesses, metrics definitions, scoring scripts, baseline references
+    │   ├── experiments/              # run manifests, raw results, per-run analysis — one subdir per run, manifest-bound
+    │   └── configs/                  # shared run/test/eval configuration (hyperparameters, environment specs)
     ├── reports/research-report.md
-    ├── manifests/artifact-manifest.json
-    └── project-state.json
+    ├── manifests/artifact-manifest.json   # immutable locations + hashes of every versioned artifact, including large outputs stored outside Git
+    └── project-state.json            # the Lead's live ledger: stage, outer_cycle, inner_attempt, budgets, HOLD/SUSPENDED status
 ```
+
+`change-and-progress-logs/` is the centralized governance hub of the research project: charter, planning, reviews, and decisions live nowhere else, and `index.md` is the master table the Lead maintains (one row per charter version, plan version, review verdict, decision, and cycle, each pointing at its artifact) so any state — past or present — is retrievable for audits, session resumption, and REPORT_GATE confirmation evidence.
 
 The project workspace is the durable source of truth. Pi subagent session/run artifacts and temporary outputs are useful for consultation history, but their retention is configurable and they are not a permanent research archive. The Lead copies or references durable findings in project records before relying on them. Large datasets, binaries, and experiment outputs may be stored outside Git in content-addressed artifact storage; manifests should record immutable locations and hashes.
 
