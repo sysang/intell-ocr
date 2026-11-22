@@ -1,8 +1,9 @@
 # System Design Guideline
 ## Two-Agent Autonomous Research Team for Applied AI: LLM & Agentic Systems
 
-**Version:** 1.0 — Proposed Architecture  
-**Primary objective:** Build an autonomous, evidence-driven research system that converts a human-defined research direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report.
+**Version:** 1.1 — Proposed Pi Subagents Architecture
+
+**Primary objective:** Build an autonomous, evidence-driven research system implemented by a Research Lead host prompt and a Research Advisor Pi subagent, using Pi's `pi-subagents` mechanism to convert a human-defined research direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report.
 
 ---
 
@@ -12,62 +13,56 @@
 
 The research system operates as a small autonomous research team with two specialized roles:
 
-- **Research Engineer:** The operational owner responsible for planning, investigating, implementing, experimenting, evaluating, analyzing, and reporting.
+- **Research Lead:** The operational owner responsible for planning, investigating, implementing, experimenting, evaluating, analyzing, and reporting.
 - **Research Advisor:** The intellectual and methodological reviewer responsible for theoretical guidance, problem clarification, critical assessment, and quality assurance.
 
 The human research director provides research directions, goals, constraints, and feedback when necessary.
 
-The expected workflow is:
+The two research roles are defined in `.pi/agents/`, but they occupy different positions in Pi:
+
+- **Research Lead** is the host/main Pi agent. Start the working session from the repository root with `pi --append-system-prompt .pi/agents/research-lead/agent.md`. It owns the research work and directly orchestrates Advisor consultations and reviews.
+- **Research Advisor** is a Pi subagent definition, invoked by the Research Lead through the `pi-subagents` `subagent` mechanism.
 
 ```text
-Human introduces research direction
-                 |
-                 v
-        Research Engineer
-                 |
-       Develop research plan
-                 |
-       Consult Research Advisor
-                 |
-       Implement experiments
-                 |
-       Consult Research Advisor
-                 |
-       Execute and evaluate
-                 |
-       Consult Research Advisor
-                 |
-       Analyze and report
-                 |
-       Consult Research Advisor
-                 |
-                 v
-     Deliver verified research
+Human research director
+          |
+          v
+Main Pi session + Research Lead instructions
+(pi --append-system-prompt .pi/agents/research-lead/agent.md)
+          |
+          +--> Research Lead plans / investigates / implements /
+          |    evaluates / analyzes / reports in the host session
+          |
+          +--> subagent({ agent: "research-advisor", task: ... })
+          |          Consultation or independent artifact review
+          |
+          +<-- Structured advice / review findings
+          |
+          v
+Research Lead continues / revises / suspends / asks the human
 ```
 
-The Engineer should be able to execute the entire research lifecycle without routine human intervention.
-
-Human involvement is reserved for decisions requiring human authority, unavailable information, changes to major research objectives, or unresolved critical issues.
+The Research Lead orchestrates the lifecycle from the active host context; there is no separate Research Lead child run or checked-in lifecycle workflow script in the initial design. The Advisor is the only research-role subagent. Human involvement is reserved for decisions requiring human authority, unavailable information, changes to major research objectives, or unresolved critical issues; the host Research Lead asks the human directly when needed.
 
 ### 1.2 Core principles
 
 **P1. Two agents only.** Do not create additional Planner, Critic, Reviewer, Evaluator, or Writer agents. These are functions of the two established roles.
 
-**P2. One accountable owner.** The Engineer owns every research deliverable. Advisor feedback does not transfer implementation responsibility.
+**P2. One accountable owner.** The Lead owns every research deliverable. Advisor feedback does not transfer implementation responsibility.
 
-**P3. Deterministic lifecycle, autonomous execution.** The research stages and required review gates are enforced by application code. The Engineer retains autonomy over technical work inside those stages.
+**P3. Host-agent orchestration, disciplined lifecycle.** The Research Lead host prompt defines the four stages, mandatory Advisor reviews, bounded revision loops, and stop conditions. It uses `pi-subagents` to invoke the Advisor directly. These are role/prompt-level obligations, not application-enforced workflow gates; a separate Pi permission/policy extension would be needed for non-bypassable enforcement.
 
 **P4. Evidence over agreement.** Advisor endorsement is not proof of correctness. Tests, source verification, experimental observations, and reproducibility determine whether claims are supportable.
 
-**P5. Uncertainty-aware consultation.** The Engineer assesses understanding and readiness before meaningful work. Unresolved uncertainty triggers Advisor consultation.
+**P5. Uncertainty-aware consultation.** The Lead assesses understanding and readiness before meaningful work. Unresolved uncertainty triggers Advisor consultation.
 
-**P6. Mandatory independent review.** Every completed research stage requires Advisor assessment, even when the Engineer reports high confidence.
+**P6. Mandatory independent review.** Every completed research stage requires Advisor assessment, even when the Lead reports high confidence.
 
 **P7. High-information consultation.** Advisor interactions use focused questions, decision-oriented briefs, and references to primary evidence rather than complete conversation histories.
 
 **P8. Research integrity.** Negative results, unresolved questions, failed experiments, and contradictory observations must be preserved and reported.
 
-**P9. Durable execution.** The system must survive interruptions and resume without losing research state, decisions, experimental artifacts, or session references.
+**P9. Durable execution.** Research Lead maintains project artifacts, decisions, and checkpoints in the research workspace so work can resume in a new or recovered host session. Advisor subagent run/session records provide consultation traceability, but Pi runtime artifacts are not the long-term research source of truth and their retention is configuration-dependent.
 
 **P10. Resource-aware autonomy.** Every research project operates within explicit budgets for computation, model usage, iteration, and external actions.
 
@@ -75,72 +70,73 @@ Human involvement is reserved for decisions requiring human authority, unavailab
 
 ## 2. Architectural decomposition
 
-The system has two LLM-based agents, supported by non-agent infrastructure.
+The target has two role definitions and one host/subagent split:
 
-### 2.1 Logical architecture
+1. **Research Lead host prompt:** `.pi/agents/research-lead/agent.md`, appended to the main Pi session at startup.
+2. **Research Advisor subagent:** `.pi/agents/research-advisor/agent.md`, discovered and invoked through `pi-subagents`.
+
+The Lead uses the Pi host's normal tools for research and implementation. It directly invokes the Advisor with the `subagent` tool for uncertainty-driven consultation and mandatory stage review. No separate workflow script, workflow engine, or third agent is part of the initial target.
+
+### 2.1 Pi-native logical architecture
 
 ```text
-              HUMAN RESEARCH DIRECTOR
-                        |
-                        v
-              RESEARCH CONTROL PLANE
-              ----------------------
-              Project / task state
-              Workflow state machine
-              Budget enforcement
-              Review gate enforcement
-              Persistence / recovery
-                        |
-                        v
-                RESEARCH ENGINEER
-                -----------------
-                Planning
-                Literature research
-                Coding
-                Experiment execution
-                Evaluation
-                Analysis
-                Reporting
-                        |
-                Advisor gateway
-                        |
-                        v
-                 RESEARCH ADVISOR
-                 ----------------
-                 Theory & principles
-                 Research methodology
-                 Deep reasoning
-                 Critical review
-                 Decision guidance
-                        |
-                        v
-                 REVIEW DECISION
-                        |
-                        v
-              WORKFLOW CONTROLLER
-                        |
-                        v
-              Continue / Revise / Stop
-
-
-    SHARED RESEARCH INFRASTRUCTURE
-    --------------------------------
-    Git repository and artifacts
-    Literature and evidence records
-    Experiment runner and datasets
-    Persistent research state
-    Tracing and evaluation records
+HUMAN RESEARCH DIRECTOR
+          |
+          v
+MAIN PI SESSION + RESEARCH LEAD HOST PROMPT
+pi --append-system-prompt .pi/agents/research-lead/agent.md
+          |
+          +--> Lead investigates / plans / implements / evaluates / reports
+          |
+          +--> Lead invokes `subagent` for Research Advisor
+          |       fresh context + focused brief + artifact references
+          |<-- structured advice or review verdict
+          |
+          v
+Lead records decisions, verifies evidence, and decides whether to
+continue, revise, suspend, or ask the human
+          |
+          v
+VERSIONED RESEARCH PROJECT WORKSPACE
 ```
 
-The workflow controller must not be another autonomous agent.
+The Research Lead is the host/main agent, not a child agent. It maintains the active lifecycle and owns deliverables. `pi-subagents` supplies the Advisor child session, model selection, run/session tracking, and child controls; it does not impose the research-stage state machine. The Research Lead's instructions and project records govern the research process.
 
-It should be deterministic software responsible for coordinating the two agents, enforcing policies, and persisting state.
+### 2.2 Pi deliverables and startup
 
-This prevents the controller itself from becoming another source of uncertain autonomous decisions.
+The initial target consists of two files under `.pi/agents/` and the existing Pi Subagents extension:
 
-### 2.2 Agent separation
+```text
+.pi/
+├── agents/
+│   ├── research-lead/
+│   │   └── agent.md       # host instructions; appended to main Pi context
+│   └── research-advisor/
+│       └── agent.md       # Pi subagent definition with frontmatter + prompt
+└── settings.json         # optional agent-discovery exclusion for research-lead
+```
 
-| Responsibility | Engineer | Advisor |
+Start Pi from the repository root:
+
+```bash
+pi --append-system-prompt .pi/agents/research-lead/agent.md
+```
+
+The main session must have `pi-subagents` loaded so the host Research Lead can call its `subagent` tool. The Research Lead file is loaded by the CLI prompt flag; it is not invoked as a child. The Advisor file is the child-agent definition. Because `pi-subagents` can recursively discover project agents, keep the Research Lead prompt out of the child catalog—use it as plain host prompt text and/or exclude `agents/research-lead` with `subagents.agentExcludeDirs` in `.pi/settings.json` if its format would otherwise be discoverable. The exclusion does not prevent `--append-system-prompt` from loading the file.
+
+Per-project research records, code, experiments, reviews, decisions, and reports remain in a versioned research workspace as described in Section 7. These are project artifacts, not additional agent definitions or a workflow script.
+
+### 2.3 Host-led orchestration and review enforcement
+
+The Research Lead host prompt defines the stage order, readiness check, consultation triggers, mandatory stage reviews, bounded revision attempts, and escalation policy. For a consultation or stage gate, the Lead launches `research-advisor` directly through `pi-subagents`, supplies a focused decision/review packet, and inspects the child result. The Advisor runs with fresh context and read-only access to the actual cited artifacts. The Lead records the advice/review, verifies required tests and evidence, and then continues or revises its own work.
+
+Use a structured Advisor response contract and Pi structured output where appropriate; check the verdict and cited evidence rather than relying on free-form agreement. A valid schema or successful Advisor child run proves only response shape/run completion—not scientific correctness.
+
+This design intentionally relies on the host Research Lead to follow the mandatory lifecycle. `pi-subagents` does not enforce research-stage gates on direct host actions. If non-bypassable policy enforcement becomes a requirement, add a separately designed and tested Pi permission/policy extension; do not claim the two agent prompts alone provide hard enforcement.
+
+### 2.4 Agent separation
+
+| Responsibility | Research Lead (host) | Research Advisor (subagent) |
 |---|---|---|
 | Interpret research direction | Owns | Clarifies |
 | Define research questions | Owns | Challenges |
@@ -153,18 +149,18 @@ This prevents the controller itself from becoming another source of uncertain au
 | Final report | Writes | Critically reviews |
 | Project status | Maintains | Reads as necessary |
 | Research decisions | Proposes and implements | Advises and reviews |
-| Human escalation | Initiates | Can recommend |
-| Budget management | Operates within limits | Uses allocated consultation budget |
+| Human escalation | Asks the human directly when necessary | Can recommend escalation |
+| Budget management | Owns project-level budget decisions | Uses allocated consultation budget |
 
-The Advisor should not be granted general-purpose implementation authority. This preserves separation of responsibility and keeps the expensive model focused on high-value intellectual work.
+The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
 
 ---
 
-## 3. Research Engineer specification
+## 3. Research Lead specification
 
 ### 3.1 Primary capabilities
 
-The Engineer requires competence in six areas.
+The Lead requires competence in six areas.
 
 **Research framing**
 
@@ -192,7 +188,7 @@ Produce reproducible research reports connecting questions, methods, observation
 
 ### 3.2 Mandatory task-readiness assessment
 
-Before beginning each meaningful task, the Engineer must execute a readiness check.
+Before beginning each meaningful task, the Lead must execute a readiness check.
 
 This should be a structured operation, not merely a system-prompt instruction to "be confident."
 
@@ -215,7 +211,9 @@ Readiness is classified as:
 - **CONSULT:** Meaningful uncertainty requires Advisor judgment.
 - **BLOCKED:** Missing authority, resources, or essential information prevents responsible progress.
 
-The Engineer should not assign arbitrary numerical confidence scores as though they were calibrated probabilities.
+The Lead records the readiness classification and its evidence in the active task/project state. For `CONSULT`, the host directly invokes the Advisor subagent; there is no separate workflow component routing the request.
+
+The Lead should not assign arbitrary numerical confidence scores as though they were calibrated probabilities.
 
 Confidence must be tied to observable evidence.
 
@@ -227,7 +225,7 @@ This is more useful than declaring "confidence: 95%."
 
 ### 3.3 Uncertainty classification
 
-The Engineer should distinguish different kinds of uncertainty.
+The Lead should distinguish different kinds of uncertainty.
 
 | Type | Example | Preferred response |
 |---|---|---|
@@ -241,7 +239,7 @@ The Engineer should distinguish different kinds of uncertainty.
 
 Not every uncertainty requires immediate consultation.
 
-However, if the Engineer cannot resolve a material uncertainty through clearly bounded investigation, consultation becomes mandatory.
+However, if the Lead cannot resolve a material uncertainty through clearly bounded investigation, consultation becomes mandatory.
 
 ### 3.4 Mandatory consultation triggers
 
@@ -250,7 +248,7 @@ Consult the Advisor when:
 1. The research question cannot be precisely formulated.
 2. Critical theoretical assumptions cannot be justified.
 3. Multiple plausible methodologies have materially different implications.
-4. The Engineer cannot devise a credible evaluation method.
+4. The Lead cannot devise a credible evaluation method.
 5. Important evidence is contradictory.
 6. Unexpected results undermine the original research hypothesis.
 7. Repeated implementation failures suggest a conceptual design problem.
@@ -261,6 +259,8 @@ Consult the Advisor when:
 A critical principle:
 
 **Do not use self-reported confidence to bypass a mandatory review or an objective high-risk trigger.**
+
+For Pi orchestration, a material consultation trigger leads the host Research Lead to construct a focused consultation package and launch `research-advisor` directly via `subagent`. The Lead reviews the returned advice, records the decision and evidence references, and continues or revises its own work. If the Lead is blocked, it pauses and asks the human rather than converting the blocker into an implicit approval.
 
 ---
 
@@ -290,13 +290,13 @@ The Advisor is not primarily a conversational assistant or motivational collabor
 
 **Mode A — Problem solving**
 
-Used when the Engineer is uncertain how to proceed.
+Used when the Lead is uncertain how to proceed.
 
 The Advisor should diagnose the problem, identify the conceptual obstacles, propose alternative approaches, compare their merits, and recommend a defensible next action.
 
 **Mode B — Design review**
 
-Used when the Engineer has proposed a research or technical design.
+Used when the Lead has proposed a research or technical design.
 
 The Advisor should examine assumptions, requirements, alternatives, failure modes, missing controls, and acceptance criteria.
 
@@ -359,11 +359,11 @@ Every mandatory review must return a structured decision.
 
 **Inconclusive** means the Advisor lacks sufficient evidence to make a defensible determination.
 
-The workflow controller, not the Engineer, enforces the review verdict.
+For Pi, return this contract as schema-constrained structured output when configured, otherwise as the specified JSON response. The host Research Lead evaluates the Advisor's verdict and decides whether to proceed, revise, or stop. This is an instruction-level gate, not runtime enforcement; a separate Pi permission/policy extension would be required to make bypass impossible.
 
 ### 4.5 Preventing superficial peer review
 
-A serious problem arises when the Advisor sees only the Engineer's interpretation of its own work.
+A serious problem arises when the Advisor sees only the Lead's interpretation of its own work.
 
 For critical reviews, the Advisor should be able to inspect:
 
@@ -382,10 +382,10 @@ For high-risk reviews, a useful procedure is:
 
 1. Present the research question, rubric, and relevant primary evidence.
 2. Ask the Advisor for an independent assessment.
-3. Present the Engineer's interpretation and self-review.
+3. Present the Lead's interpretation and self-review.
 4. Ask the Advisor to identify disagreements, missing evidence, and potential errors.
 
-This reduces the risk of anchoring on the Engineer's conclusions.
+This reduces the risk of anchoring on the Lead's conclusions.
 
 It does not eliminate correlated model failures, so independent tests and human escalation remain necessary.
 
@@ -395,66 +395,50 @@ It does not eliminate correlated model failures, so independent tests and human 
 
 ### 5.1 Research lifecycle
 
-Use four major stages:
+The Research Lead host agent executes the four stages. It delegates consultation and independent stage review to the `research-advisor` Pi subagent through the `subagent` tool; it is not launched as a subagent itself.
 
 ```text
-RESEARCH REQUEST
-       |
-       v
-  1. PLANNING
-       |
-  Advisor Review Gate
-       |
-       v
-  2. IMPLEMENTATION
-       |
-  Advisor Review Gate
-       |
-       v
-  3. EVALUATION & ANALYSIS
-       |
-  Advisor Review Gate
-       |
-       v
-  4. REPORTING
-       |
-  Advisor Review Gate
-       |
-       v
-  RESEARCH COMPLETE
+Human request
+     |
+     v
+Research Lead host session
+     |
+  1. PLANNING ---------> Advisor subagent review
+     |
+  2. IMPLEMENTATION ---> Advisor subagent review
+     |
+  3. EVALUATION -------> Advisor subagent review
+     |
+  4. REPORTING --------> Advisor subagent review
+     |
+     v
+Lead verifies evidence and delivers, revises, suspends, or asks the human
 ```
 
-Each stage contains an autonomous Engineer work loop.
+Before each meaningful task, the Lead assesses readiness. It investigates bounded factual/technical uncertainty directly, invokes the Advisor for material conceptual or methodological uncertainty, and asks the human when authority or essential information is missing. After completing each stage, it must launch a fresh-context Advisor review and resolve critical findings before moving on.
 
 ```text
-Select task
+Lead task-readiness check
     |
-Assess readiness
-    |
-    +-- READY ------> Execute
-    |
-    +-- INVESTIGATE -> Gather evidence -> Reassess
-    |
-    +-- CONSULT ----> Advisor -> Update approach
-    |
-    +-- BLOCKED ----> Escalate / Stop
-                           |
-                      Resume if resolved
+    +-- READY ------> execute and verify
+    +-- INVESTIGATE -> bounded investigation -> reassess
+    +-- CONSULT ----> subagent(research-advisor) -> integrate advice
+    +-- BLOCKED ----> pause and ask the human / report blocker
 
-After execution:
+Stage deliverables complete -> subagent(research-advisor) review
     |
-Verify result
-    |
-Update evidence and task state
-    |
-Next task or stage review
+    +-- approve + evidence checks pass -> next stage
+    +-- revise -> Lead remediates -> Advisor reviews again
+    +-- block / inconclusive / unresolved critical issue -> suspend or escalate
 ```
+
+The Lead's host prompt and durable project records preserve lifecycle state across turns. `pi-subagents` manages the Advisor child run; it does not advance the research stage on the Lead's behalf or enforce the gate in application code.
 
 ### 5.2 Stage 1 — Research planning
 
 **Objective:** Transform the user's research direction into an executable, falsifiable research program.
 
-The Engineer should:
+The Lead should:
 
 1. Interpret the research goal.
 2. Identify relevant concepts and prior work.
@@ -496,7 +480,7 @@ Where practical, record the experiment protocol before observing the primary eva
 
 **Objective:** Build the software and experimental infrastructure required by the approved methodology.
 
-The Engineer should:
+The Lead should:
 
 1. Inspect existing code, libraries, and datasets.
 2. Build or adapt experiment components.
@@ -538,7 +522,7 @@ Implementation approval does not establish that the scientific hypothesis is cor
 
 **Objective:** Generate reproducible empirical evidence and assess whether the research hypotheses are supported.
 
-The Engineer should:
+The Lead should:
 
 1. Freeze or version the experimental protocol.
 2. Execute the approved baselines.
@@ -584,7 +568,7 @@ Do not modify a held-out evaluation set simply to obtain stronger results. Mater
 
 **Objective:** Produce a rigorous technical report whose claims can be traced to evidence.
 
-The Engineer should prepare a report containing:
+The Lead should prepare a report containing:
 
 1. Executive summary.
 2. Research problem and motivation.
@@ -629,7 +613,7 @@ The Engineer should prepare a report containing:
 
 This is one of the most important parts of the system.
 
-The Engineer must be an effective consumer of Advisor intelligence.
+The Lead must be an effective consumer of Advisor intelligence.
 
 ### 6.1 The consultation objective
 
@@ -690,6 +674,8 @@ consultation:
 
 The package should communicate enough information for a meaningful decision without reproducing the entire research history.
 
+In the Pi implementation, the Lead prepares this package as a focused subagent task (or a small versioned artifact plus references) and launches `research-advisor` with fresh context. The Advisor returns structured advice/review findings; Pi records the child run and the Lead writes the durable decision/review record in the project workspace. Do not put private credentials or large raw datasets in the subagent task.
+
 ### 6.3 Information prioritization
 
 Include information in this order:
@@ -697,7 +683,7 @@ Include information in this order:
 1. The question or decision required.
 2. Why it matters to the research objective.
 3. The most relevant verified facts.
-4. The Engineer's current approach.
+4. The Lead's current approach.
 5. The uncertainty or disagreement.
 6. Critical evidence and artifact references.
 7. Resource or implementation constraints.
@@ -732,7 +718,7 @@ This avoids paying to transmit large amounts of potentially irrelevant context w
 
 ### 6.5 Consultation quality checks
 
-Before calling the Advisor, the Engineer should verify:
+Before calling the Advisor, the Lead should verify:
 
 - Is the question specific?
 - Is there an identifiable decision to be made?
@@ -807,53 +793,42 @@ Instead, use versioned artifacts.
 
 Each research project should have a stable identifier, persistent tasks, source records, experiment runs, decisions, reviews, and final deliverables.
 
-### 7.2 Suggested project structure
+### 7.2 Suggested Pi and project structure
+
+Keep the two role definitions separate from per-project research evidence:
 
 ```text
-research-project/
-├── charter/
-│   ├── research-charter.md
-│   └── scope-and-constraints.md
-│
-├── literature/
-│   ├── sources.jsonl
-│   ├── literature-review.md
-│   └── evidence-notes/
-│
-├── planning/
-│   ├── hypotheses.md
-│   ├── methodology.md
-│   ├── evaluation-plan.md
-│   └── roadmap.md
-│
-├── implementation/
-│   ├── src/
-│   ├── tests/
-│   ├── configs/
-│   └── README.md
-│
-├── experiments/
-│   ├── manifests/
-│   ├── raw-results/
-│   └── analysis/
-│
-├── reviews/
-│   ├── planning/
-│   ├── implementation/
-│   ├── evaluation/
-│   └── reporting/
-│
-├── decisions/
-│   └── decision-log.md
-│
-├── reports/
-│   └── research-report.md
-│
-└── manifests/
-    └── artifact-manifest.json
+repository/
+├── .pi/
+│   ├── agents/
+│   │   ├── research-lead/
+│   │   │   └── agent.md       # appended to the main Pi session
+│   │   └── research-advisor/
+│   │       └── agent.md       # discovered Pi subagent
+│   └── settings.json          # optional subagent discovery exclusion
+└── research-projects/<project-id>/
+    ├── charter/
+    │   ├── research-charter.md
+    │   └── scope-and-constraints.md
+    ├── literature/
+    │   ├── sources.jsonl
+    │   ├── literature-review.md
+    │   └── evidence-notes/
+    ├── planning/
+    │   ├── hypotheses.md
+    │   ├── methodology.md
+    │   ├── evaluation-plan.md
+    │   └── roadmap.md
+    ├── implementation/{src,tests,configs}/
+    ├── experiments/{manifests,raw-results,analysis}/
+    ├── reviews/{planning,implementation,evaluation,reporting}/
+    ├── decisions/decision-log.md
+    ├── reports/research-report.md
+    ├── manifests/artifact-manifest.json
+    └── project-state.json
 ```
 
-Large datasets, binaries, and experiment outputs may be stored outside Git in content-addressed artifact storage. The manifest should reference their immutable locations and hashes.
+The project workspace is the durable source of truth. Pi subagent session/run artifacts and temporary outputs are useful for consultation history, but their retention is configurable and they are not a permanent research archive. The Lead copies or references durable findings in project records before relying on them. Large datasets, binaries, and experiment outputs may be stored outside Git in content-addressed artifact storage; manifests should record immutable locations and hashes.
 
 ### 7.3 Research knowledge organization
 
@@ -866,7 +841,7 @@ I recommend four knowledge categories.
 | Experimental evidence | Methods, configurations, outputs, metrics |
 | Operational knowledge | Tools, procedures, previous failures, research practices |
 
-The Engineer should retrieve only the knowledge needed for the active task.
+The Lead should retrieve only the knowledge needed for the active task.
 
 The Advisor should receive relevant knowledge through the consultation package and selective artifact access.
 
@@ -892,196 +867,66 @@ Every important research claim should have an associated evidence record.
 }
 ```
 
-The Engineer must not convert a plausible hypothesis into a verified fact merely because the Advisor agrees with it.
+The Lead must not convert a plausible hypothesis into a verified fact merely because the Advisor agrees with it.
 
 ---
 
-## 8. Workflow state and execution contracts
+## 8. Host orchestration, state, and execution contracts
 
-### 8.1 Project state
+The Research Lead is the host/main Pi agent. It owns the project state and coordinates its own work with Research Advisor child runs. Pi conversation history and Advisor sessions are useful execution context, but the durable research record belongs in `research-projects/<project-id>/`.
 
-A research project should track:
+- **Research-domain state** includes the active stage, approved protocol, tasks, evidence, decisions, budgets, reviews, and completion status. The Lead records it in `project-state.json` and the versioned artifacts it references.
+- **Pi execution state** includes Advisor child run IDs, session references, status, and usage. `pi-subagents` manages this child-run state; it is not a permanent substitute for the research-domain record.
 
-- Project ID.
-- Research direction and goal.
-- Active stage and version.
-- Tasks and dependencies.
-- Research questions and hypotheses.
-- Approved methodology.
-- Resource budgets.
-- Session and run identifiers.
-- Artifact references.
-- Advisor consultation history.
-- Review verdicts.
-- Human escalation status.
-- Research completion status.
+Starting a new host session requires loading the Lead prompt again with the documented `--append-system-prompt` command, then reading the project state and resuming from its artifacts. Pi's subagent runtime does not persist the Lead's research-stage state as a workflow engine would.
 
-### 8.2 Task state
+### 8.1 Project and task records
 
-```typescript
-type ResearchTask = {
-  id: string;
-  projectId: string;
-  stage: ResearchStage;
-  parentTaskId?: string;
-  dependencies: string[];
+The project record should track:
 
-  objective: string;
-  acceptanceCriteria: string[];
+- Project ID, research direction, objectives, constraints, and resource budget.
+- Active stage, approved protocol version, task dependencies, acceptance criteria, and attempts.
+- Research questions, hypotheses, decisions, evidence references, and artifact hashes.
+- Advisor consultations and review verdicts, including relevant Pi child run IDs.
+- Human decisions, unresolved findings, and project completion status.
 
-  status:
-    | "pending"
-    | "assessing"
-    | "investigating"
-    | "consulting"
-    | "executing"
-    | "verifying"
-    | "completed"
-    | "blocked";
+The Lead maintains this record. Stage approval refers to an immutable/versioned deliverable manifest; distinguish submitted artifacts from approved artifacts. A task is complete only when its acceptance criteria and verification evidence are recorded. An Advisor child run marked `complete` means only that the consultation settled; it does not mean the research is scientifically valid or accepted.
 
-  readinessAssessment?: ReadinessAssessment;
+### 8.2 Advisor consultation and stage review
 
-  engineerSessionId?: string;
-  consultationIds: string[];
-  artifactIds: string[];
-  evidenceIds: string[];
+The Lead performs a structured readiness assessment for each meaningful task and records the conclusion and evidence in the project state. It investigates bounded factual/technical uncertainty directly, consults the Advisor for material conceptual or methodological uncertainty, and pauses for human input when authority or essential information is missing.
 
-  attemptCount: number;
-};
-```
+Launch the Advisor directly through Pi Subagents with a focused task and fresh context. For example, the host can call `subagent` with `agent: "research-advisor"`, the consultation/review brief as `task`, and `options.context: "fresh"`. The Advisor receives the brief and its own allowed tools; it does not automatically inherit the host's conversation or system prompt. Supply artifact paths/IDs and ask it to inspect primary evidence. If a call runs in the background, the Lead must collect and inspect the completed result before relying on it.
 
-A task may be marked complete only after its acceptance criteria have been checked.
+Use the Section 4.4 decision contract for reviews. Where appropriate, request Pi structured output with a matching schema and check the verdict and evidence references. A valid schema or successful child run proves only response shape/run completion—not that the claims are true. Record the consultation result in project decisions/reviews before proceeding.
 
-### 8.3 State transitions
+### 8.3 Stage transitions and host-session resumption
 
-Use explicit workflow transitions.
+The Research Lead follows this project-level progression:
 
 ```text
-CREATED
-   |
-SCOPING
-   |
-PLANNING
-   |
-PLAN_REVIEW
-   |---- revise ---> PLANNING
-   |
-IMPLEMENTING
-   |
-IMPLEMENTATION_REVIEW
-   |---- revise ---> IMPLEMENTING
-   |
-EVALUATING
-   |
-EVALUATION_REVIEW
-   |---- revise ---> EVALUATING
-   |
-REPORTING
-   |
-REPORT_REVIEW
-   |---- revise ---> REPORTING
-   |
-COMPLETED
+CREATED -> SCOPING -> PLANNING -> PLAN_REVIEW
+        -> IMPLEMENTING -> IMPLEMENTATION_REVIEW
+        -> EVALUATING -> EVALUATION_REVIEW
+        -> REPORTING -> REPORT_REVIEW -> COMPLETED
 ```
 
-From every active state, the workflow may enter:
+At each gate, the Lead invokes the Advisor, evaluates the verdict, checks required tests/evidence, and records the decision. `revise` routes work back to the Lead; `block`, `inconclusive`, failed checks, unresolved human decisions, or exhausted review limits suspend progress. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
 
-- `WAITING_FOR_ADVISOR`
-- `WAITING_FOR_HUMAN`
-- `BLOCKED`
-- `FAILED`
-- `SUSPENDED`
+Pi run/session state helps recover Advisor consultations and inspect their results, but the host Research Lead's conversational state is not a durable workflow engine. A new host session reloads the prompt file, reads the project state, and resumes explicitly. Do not claim automatic transactionality or indefinite recovery for the whole research cycle.
 
-Transitions must be persisted.
+### 8.4 Bounded autonomy and budgets
 
-### 8.4 Controller pseudocode
+Use explicit project-level limits for:
 
-```typescript
-async function runResearch(project: ResearchProject) {
-  for (const stage of RESEARCH_STAGES) {
-    await enterStage(project, stage);
+- Advisor consultations and repeated reviews.
+- Experiment runs and wall-clock duration.
+- Model token/cost usage and external API expenditure.
+- Sandbox CPU, memory, storage, and network use.
 
-    while (!stageDeliverablesComplete(project, stage)) {
-      const task = await selectNextTask(project, stage);
+The Research Lead tracks these limits in project state. Pi Subagents can report child-run usage and accept per-run controls, but such controls do not replace external compute/API quotas or guarantee stopping all already-running work at a budget boundary. A hard tool budget can block needed operations, and deadline termination can interrupt a mutation. Prefer narrow tasks, explicit checkpoints, external resource quotas, and project-level accounting.
 
-      const readiness = await engineer.assessReadiness(task);
-
-      if (readiness.status === "INVESTIGATE") {
-        await engineer.investigate(task);
-        continue;
-      }
-
-      if (readiness.status === "CONSULT") {
-        const request = await buildConsultationPackage(task);
-        const advice = await advisor.consult(request);
-
-        await persistAdvice(advice);
-        await engineer.integrateAdvice(task, advice);
-        continue;
-      }
-
-      if (readiness.status === "BLOCKED") {
-        await suspendOrEscalate(project, task);
-        return;
-      }
-
-      const execution = await engineer.execute(task);
-
-      const verification = await verifyTask(task, execution);
-
-      await persistExecution(execution, verification);
-      await updateTaskState(task, verification);
-    }
-
-    const reviewPackage = await buildStageReviewPackage(
-      project,
-      stage
-    );
-
-    const review = await advisor.review(reviewPackage);
-
-    await persistReview(review);
-
-    if (review.verdict === "approve" &&
-        await mandatoryChecksPass(project, stage)) {
-      await advanceStage(project);
-      continue;
-    }
-
-    await createRemediationTasks(review);
-
-    if (await retryOrBudgetLimitReached(project, stage)) {
-      await suspendOrEscalate(project);
-      return;
-    }
-
-    await resumeStageForRevision(project, stage);
-  }
-
-  await finalizeProject(project);
-}
-```
-
-This is architectural pseudocode, not a complete framework-specific implementation.
-
-Important details for a real implementation include idempotent execution, durable checkpoints, retry handling, atomic state transitions, and prevention of duplicate external actions after recovery.
-
-### 8.5 Bounded autonomy
-
-Use configurable limits for:
-
-- Research iterations.
-- Advisor consultations.
-- Stage review cycles.
-- Experiment runs.
-- Runtime.
-- Token usage.
-- External API expenditure.
-- Sandbox resource consumption.
-
-When limits are reached, the Engineer should produce an honest status report identifying completed work, unresolved issues, and the next required decision.
-
-No mechanism should force the Engineer to produce a positive research conclusion when the evidence is insufficient.
+When a limit is reached, stop advancing and report completed work, unresolved issues, consumed resources, and the next decision. No instruction should force a positive research conclusion when evidence is insufficient.
 
 ---
 
@@ -1148,7 +993,7 @@ For LLM experiments:
 
 ### 9.4 Distinguish observation from interpretation
 
-The Engineer and Advisor must distinguish:
+The Lead and Advisor must distinguish:
 
 **Observation**
 
@@ -1172,200 +1017,145 @@ The system must preserve these epistemic distinctions.
 
 ---
 
-## 10. Recommended implementation technology
+## 10. Pi implementation architecture
 
-### 10.1 Architectural preference
+### 10.1 Target platform and runtime
 
-Use a composable architecture with three distinct layers.
+**Use the main Pi session as the Research Lead host, and use `pi-subagents` to launch the Research Advisor as a child.** The initial implementation consists of two files under `.pi/agents/`; it does not include a separate workflow script, a Research Lead child agent, or another agent framework.
 
-| Layer | Responsibility |
-|---|---|
-| Workflow engine | Durable research lifecycle and review enforcement |
-| Agent harness | Model interaction, tool execution, context management |
-| Research infrastructure | Code, evidence, datasets, experiments, artifacts |
+| Role/runtime element | Pi implementation | Responsibility |
+|---|---|---|
+| Research Lead | Host instructions loaded with `pi --append-system-prompt .pi/agents/research-lead/agent.md` | Performs the research and orchestrates stages/Advisor calls in the main session |
+| Research Advisor | Custom Pi subagent at `.pi/agents/research-advisor/agent.md` | Provides consultation and independent artifact review through child runs |
+| Delegation | Existing `pi-subagents` extension and the host's `subagent` tool | Starts, tracks, and returns Advisor subagent runs |
+| Research infrastructure | Versioned project workspace, Git, experiment tools, artifact storage, isolated execution | Durable state, primary evidence, code, datasets, results, and reproducibility |
 
-Avoid coupling research semantics to framework-specific chat messages.
+The Lead's system prompt is the orchestration contract. Pi Subagents supplies delegation and child-run management; it does not encode or enforce the research lifecycle.
 
-Project state, consultation records, review decisions, and experiment evidence should remain accessible even if the agent framework changes.
+### 10.2 Agent-definition files
 
-### 10.2 Initial framework recommendation
+Use these paths:
 
-**Recommended starting point: Mastra with TypeScript.**
+- `.pi/agents/research-lead/agent.md`: host-role prompt appended to the main Pi session. Start Pi from the repository root with:
 
-Reasons:
+  ```bash
+  pi --append-system-prompt .pi/agents/research-lead/agent.md
+  ```
 
-- Native agent abstraction.
-- Typed workflows and structured steps.
-- Conditional branching and loops.
-- Workflow persistence and suspension.
-- Agent tool integration.
-- Observability and usage tracking.
-- A coherent implementation environment for both agent behavior and deterministic orchestration.
+- `.pi/agents/research-advisor/agent.md`: Pi subagent definition with YAML frontmatter and the Advisor system prompt. Its canonical runtime name is `research-advisor`.
 
-Mastra's documented capabilities align with the requirement to combine autonomous agent activity with enforced lifecycle stages.
+The Lead prompt is not a child agent and should not be launched with `subagent`. Prefer plain Markdown without Pi subagent YAML frontmatter for this file; only the Advisor file needs subagent frontmatter. If the Lead file is nevertheless discovered as a child, exclude `agents/research-lead` from `subagents.agentExcludeDirs` in `.pi/settings.json` (relative to `.pi`); this removes it from the child catalog without affecting direct `--append-system-prompt` loading. Keep only `research-advisor` available as the research subagent.
 
-An alternative is **Deep Agents with LangGraph**, particularly when its filesystem-based agent harness and Python ecosystem are more attractive.
+The Research Lead's tools come from the main Pi host configuration. Ensure the `pi-subagents` extension and its `subagent` tool are available in that session. The Advisor's frontmatter should set an explicit read-only tool allowlist (for example `read`, `grep`, `find`, `ls`, plus selected read-only evidence providers), project-context inheritance as needed, a separately configurable model, and no nested subagent delegation. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
 
-The crucial design distinction:
+### 10.3 Host-led Advisor delegation
 
-- Mastra is a suitable candidate for both the initial workflow and agent runtime.
-- Deep Agents is especially relevant as an opinionated agent harness, supported by LangGraph execution facilities.
-- A custom workflow with LangGraph can provide fine-grained control when necessary.
+For a consultation or mandatory stage review, the Lead calls `subagent` directly with `agent: "research-advisor"` and a focused `task` containing the decision/review brief, rubric, constraints, and exact artifact paths/IDs. Use fresh child context so the Advisor assesses the supplied evidence rather than inheriting the Lead's conversation. Where appropriate, request schema-constrained structured output matching Section 4.4 and inspect the final result before proceeding.
 
-Do not combine several overlapping agent orchestration frameworks in version 1 without a demonstrated requirement.
+The Lead owns all stage sequencing, task execution, remediation, project-state updates, and direct human escalation. It should invoke one Advisor child per decision/review, consume the result via the Pi subagent result/status mechanism, and preserve useful outcomes in project files. Use asynchronous child execution for long consultations when it keeps the host responsive, but do not treat dispatch acceptance as a completed review.
 
-### 10.3 Suggested initial stack
+Do not add `.pi/workflows/research-lifecycle.js` as a required component in version 1. A reusable `pi-subagents` scripted workflow may be considered later for a well-defined mechanical sequence, but it is not the host's role and must not replace the Research Lead as lifecycle owner.
+
+### 10.4 Suggested initial stack
 
 | Component | Recommendation |
 |---|---|
-| Language | TypeScript |
-| Agent runtime | Mastra Agents |
-| Workflow | Mastra Workflows |
-| Engineer model | Capable, cost-effective coding/research model |
-| Advisor model | Strongest practically available reasoning model |
-| Tool execution | Isolated container or sandbox |
-| Source control | Git |
-| Task and project state | SQLite initially; PostgreSQL when needed |
-| Artifacts | Local filesystem initially; object storage later |
-| Schemas | Zod |
-| Experiment analysis | Python, pandas, SciPy and relevant scientific libraries |
-| Literature sources | Academic search and publisher APIs, official documentation, repositories |
-| Observability | Structured run events, traces, token/cost records |
-| Dashboard | Minimal project/task/review interface |
+| Host agent | Pi main session with the Research Lead prompt appended at startup |
+| Subagent runtime | Pi Subagents extension (`pi-subagents`) |
+| Host prompt | `.pi/agents/research-lead/agent.md` |
+| Advisor subagent | `.pi/agents/research-advisor/agent.md` |
+| Agent discovery | Project `.pi/settings.json`; exclude the Lead prompt directory if it would be discovered as a child |
+| Lead model | Main Pi session's configured model; selected by the operator |
+| Advisor model | Independently configurable in Advisor frontmatter or `subagents.agentOverrides` |
+| Source control | Git; use isolated worktrees when concurrent or risky code changes require them |
+| Project state and artifacts | Versioned project files plus immutable external artifact storage for large outputs |
+| Experiment analysis | Python, pandas, SciPy, and task-specific libraries where appropriate |
+| Literature sources | Academic search/publisher APIs, official documentation, and repositories through explicitly loaded tools |
+| Verification | Tests, executable checks, source provenance, and independent scientific assessment |
+| Observability | Pi Advisor run/session/usage records plus durable project decision and artifact manifests |
 
-The two models should be configurable independently by project or task.
+The Lead must be capable enough to implement and evaluate real experiments. A cheaper model that frequently generates flawed work may increase total cost through rework and Advisor consultations.
 
-The Engineer model must be capable enough to implement and evaluate real experiments. A cheaper model that frequently generates flawed work may increase total cost through rework and Advisor consultations.
+### 10.5 Tool permissions and security
 
-### 10.4 Tool permissions
+**Research Lead host**
 
-**Engineer tools**
+- Uses the main Pi session's filesystem, repository, terminal, research, and experiment tools within the host's configured permissions.
+- Uses the `subagent` tool only to delegate bounded consultation/review work to `research-advisor`.
+- Owns implementation and project artifact changes.
 
-- Literature search and retrieval.
-- Repository inspection.
-- Filesystem read/write.
-- Code editing.
-- Terminal execution in a sandbox.
-- Test and benchmark execution.
-- Dataset processing.
-- Statistics and visualization.
-- Artifact creation.
-- Advisor consultation.
-- Project/task updates.
+**Research Advisor subagent**
 
-**Advisor tools**
+- Read-only access to artifacts, source, tests, results, and literature relevant to the task.
+- Selected read-only retrieval and optional isolated analysis tools.
+- No `write`, `edit`, or general-purpose shell access; no nested subagent delegation.
 
-- Read-only artifact inspection.
-- Primary-source retrieval.
-- Read-only source code inspection.
-- Experiment and evaluation result inspection.
-- Optional isolated analytical computation.
-- Structured review submission.
-
-The Advisor should not modify the Engineer's implementation or alter raw experimental observations.
-
-### 10.5 Security and operational safeguards
-
-Implement:
-
-- Isolated code execution.
-- Explicit filesystem boundaries.
-- Secret management outside agent-accessible source files.
-- Network restrictions where practical.
-- Resource quotas.
-- Restricted external side effects.
-- Protection against prompt injection in retrieved content.
-- Validation of tool arguments.
-- Separation of trusted instructions from untrusted documents.
-- Human approval for irreversible, expensive, externally visible, or security-sensitive actions.
-
-An autonomous research agent will encounter untrusted web pages, repositories, datasets, and executable dependencies. Treat them as data, not instructions governing the agent.
+Apply sandboxing, filesystem/network boundaries, secrets management, resource quotas, restricted external side effects, prompt-injection defenses, and human approval for irreversible or externally visible actions at the host/tool layer. Pi tool allowlists are not an operating-system sandbox. Retrieved pages, repositories, datasets, prompts, and dependencies are untrusted data—not instructions that may override either role contract.
 
 ---
 
-## 11. System prompts and agent contracts
+## 11. Agent prompts and contracts
 
-### 11.1 Engineer system-instruction template
+### 11.1 Research Lead host-prompt template
 
-**Role:** Autonomous Applied AI Research Engineer.
+**Role:** Autonomous Applied AI Research Lead, running in the main Pi session.
 
-**Mission:** Transform research goals into rigorous, reproducible research results.
+**Loading:** Start the host session with `pi --append-system-prompt .pi/agents/research-lead/agent.md` from the repository root. This file configures the host role; it is not a subagent to launch.
+
+**Mission:** Transform human research directions into rigorous, reproducible research results while owning the full research lifecycle.
 
 **Responsibilities**
 
 - Own research planning, implementation, evaluation, analysis, and reporting.
-- Maintain project state, artifacts, evidence and decisions.
-- Assess task understanding and readiness before substantial execution.
-- Consult the Research Advisor when uncertainty cannot be responsibly resolved.
-- Submit completed stage deliverables for mandatory Advisor review.
-- Integrate accepted feedback and document unresolved disagreements.
-- Use appropriate tools to independently verify claims and implementation results.
-- Remain within budget and security constraints.
+- Maintain project state, artifacts, evidence, budgets, and decisions in the research workspace.
+- Assess task understanding and readiness before substantial work.
+- Use the `subagent` tool to consult or independently review with `research-advisor` when required; do not create or delegate to other agent roles.
+- Submit completed artifacts for mandatory Advisor review at every stage gate.
+- Integrate advice, verify findings independently, and document unresolved disagreements.
+- Ask the human directly when authority, unavailable information, or a material scope decision requires it.
 
-**Reasoning discipline**
+**Reasoning and execution discipline**
 
-- Distinguish facts, inferences, hypotheses and assumptions.
-- Do not fabricate research sources, observations, experiment results, or successful executions.
-- Prefer primary evidence when making consequential claims.
-- Question approaches that lack identifiable evaluation criteria.
-- Preserve unsuccessful experiments and contradictory evidence.
-- Do not claim a task has passed merely because generated text appears plausible.
-- Do not advance a research stage without controller authorization.
+- Distinguish facts, inferences, hypotheses, and assumptions.
+- Do not fabricate sources, observations, experiment results, or successful executions.
+- Prefer primary evidence for consequential claims and preserve negative/contradictory findings.
+- Use project artifacts as durable state; do not rely on session history as the only memory.
+- Do not advance until the mandatory Advisor review and defined evidence checks are complete.
+- Treat this gate as a host-agent obligation; Pi's `subagent` tool does not enforce the research lifecycle automatically.
 
 **Advisor consultation discipline**
 
 - Formulate one precise decision or closely related question set per consultation.
-- Provide the minimum sufficient context.
-- Supply direct references to critical evidence.
-- Explain uncertainty and alternative explanations.
-- Request actionable feedback.
-- Avoid repeating information available in existing decisions.
+- Supply a compact brief, relevant artifact paths/IDs, alternatives, constraints, and requested output.
+- Use a fresh Advisor context and read-only access to the cited evidence.
+- Inspect the returned review verdict and findings; Advisor agreement is not proof.
 
-**Completion discipline**
+### 11.2 Research Advisor subagent template
 
-A task is complete only when its acceptance criteria are satisfied and supporting evidence is recorded.
+**Role:** Principal Research Scientist and Methodological Advisor, invoked as the `research-advisor` Pi subagent.
 
-### 11.2 Advisor system-instruction template
+**Mission:** Improve the theoretical rigor, scientific validity, and intellectual quality of the Research Lead's work.
 
-**Role:** Principal Research Scientist and Methodological Advisor.
+**Tool and authority boundary**
 
-**Mission:** Improve the theoretical rigor, scientific validity, and intellectual quality of the Research Engineer's work.
+- Use only explicitly allowlisted read-only tools for research artifacts, sources, code, tests, and results.
+- Do not modify files, execute general-purpose shell commands, alter raw data, or launch subagents.
+- Advice and review verdicts do not authorize actions or transfer deliverable ownership from the Lead.
 
 **Responsibilities**
 
-- Provide expert theoretical knowledge and methodological guidance.
-- Resolve difficult conceptual problems.
-- Identify invalid assumptions and missing alternatives.
-- Critically evaluate research plans, implementations, evaluations and conclusions.
-- Review mandatory stage deliverables.
-- Recommend focused corrective actions.
-- State when the evidence is insufficient.
+- Provide focused theoretical and methodological guidance when consulted.
+- Critically assess planning, implementation, evaluation, analysis, and reporting artifacts.
+- Identify invalid assumptions, confounds, weak baselines, missing evidence, alternative explanations, and unsupported conclusions.
+- Request primary artifacts when the supplied summary is insufficient.
+- Return the structured review contract in Section 4.4 for mandatory stage reviews.
 
 **Evaluation discipline**
 
-- Do not agree merely to maintain conversational harmony.
-- Do not infer correctness from the Engineer's confidence.
-- Challenge assumptions that could materially change conclusions.
-- Distinguish established findings from plausible explanations.
-- Identify confounding factors and threats to validity.
-- Prefer testable recommendations.
-- State uncertainty when warranted.
-- Request original evidence when summaries are insufficient.
-
-**Response discipline**
-
-- Be concise when the problem is straightforward.
-- Reason carefully about high-impact or obscure problems.
-- Return structured, decision-oriented responses.
-- Prioritize critical issues over cosmetic improvements.
-- Provide clear justifications and evidence references.
-- Do not represent your own review as independent proof of correctness.
-
-**Authority**
-
-The Advisor provides consultation and structured review verdicts. The workflow controller enforces review policy. Experimental evidence remains authoritative over unsupported model judgment.
-
----
+- Do not agree merely to maintain conversational harmony or infer correctness from the Lead's confidence.
+- Distinguish established findings from plausible explanations and speculation.
+- Explain why issues matter and specify evidence or correction that would resolve them.
+- State uncertainty when warranted; do not represent your review as proof of correctness.
 
 ## 12. Evaluating the research-agent system itself
 
@@ -1391,9 +1181,9 @@ At minimum compare:
 
 | Variant | Description |
 |---|---|
-| A | Engineer operating independently |
-| B | Engineer with mandatory Advisor stage reviews |
-| C | Engineer with mandatory reviews and uncertainty-triggered consultations |
+| A | Lead operating independently |
+| B | Lead with mandatory Advisor stage reviews |
+| C | Lead with mandatory reviews and uncertainty-triggered consultations |
 | D | Full architecture with curated consultation packages and adaptive context |
 
 This allows the contribution of consultation and context engineering to be estimated separately.
@@ -1444,14 +1234,14 @@ Test the system against deliberate failures.
 
 | Scenario | Expected behavior |
 |---|---|
-| Engineer misunderstands the question | Detect ambiguity and consult |
-| Engineer selects an invalid methodology | Advisor rejects or requests revision |
+| Lead misunderstands the question | Detect ambiguity and consult |
+| Lead selects an invalid methodology | Advisor rejects or requests revision |
 | Advisor approves incorrect code | Automated tests prevent premature success |
 | Advisor receives insufficient context | Requests primary evidence |
-| Advisor gives contradictory advice | Engineer records conflict and seeks empirical resolution |
+| Advisor gives contradictory advice | Lead records conflict and seeks empirical resolution |
 | Experiment returns negative result | Preserve and report honestly |
 | Experiment results are inconsistent | Investigate variability and validity |
-| Workflow crashes | Resume from persisted state |
+| Lead host session or Pi process is interrupted | Start a new host session with the Research Lead prompt, reconcile project state/artifacts, and resume explicitly; recover an Advisor child run only when supported by `pi-subagents`, otherwise relaunch from durable evidence |
 | Research budget is exhausted | Suspend and report status |
 | Retrieved document contains malicious instructions | Treat as untrusted content |
 | Evaluation data is contaminated | Flag the validity threat and stop affected claims |
@@ -1460,75 +1250,64 @@ Test the system against deliberate failures.
 
 ## 13. Implementation roadmap
 
-### Milestone 1 — Two-agent interaction
+### Milestone 1 — Research Lead host prompt and Advisor subagent
 
 Implement:
 
-- Research Engineer.
-- Research Advisor.
-- Advisor consultation tool.
-- Structured consultation and review schemas.
-- Separate model configurations.
-- Basic execution tracing.
+- `.pi/agents/research-lead/agent.md`, loaded into the main Pi session with `--append-system-prompt`.
+- `.pi/agents/research-advisor/agent.md` as the Pi subagent definition.
+- Clear tool boundaries: Lead owns execution; Advisor is read-only and cannot spawn more agents.
+- Project state/artifact layout and the Advisor consultation/review contract.
+- Agent-discovery exclusion for the Lead prompt directory if its format would otherwise make it a child agent.
 
-**Exit criterion:** The Engineer can autonomously determine when to consult the Advisor and incorporate an actionable response.
+**Exit criterion:** The Lead prompt loads in the host session; the Advisor is discoverable and can be invoked by name; it can inspect but not modify research artifacts; the Lead independently routes and consumes a consultation.
 
-### Milestone 2 — Durable research workflow
+### Milestone 2 — Host-led lifecycle discipline
 
-Implement:
+Implement and test through bounded research exercises:
 
-- Four research stages.
-- Persistent project and task state.
-- Mandatory review gates.
-- Revision loops.
-- Human escalation.
-- Budget limits.
-- Recovery after restart.
+- The four stage sequence and mandatory Advisor review instructions in the Lead prompt.
+- Readiness checks, consultation triggers, fresh-context review packets, and bounded revise/suspend decisions.
+- Project-state updates, immutable artifact manifests, and resume instructions for a new host session.
+- Human clarification/escalation behavior and explicit disclosure that gates are host-agent policy, not application-enforced workflow.
 
-**Exit criterion:** A research project cannot progress through an unapproved mandatory stage gate.
+**Exit criterion:** The Lead follows the four stages, launches the Advisor at all mandatory gates, records verdicts/evidence, and does not proceed after unresolved blockers during acceptance exercises. This is behavioral evidence, not a hard runtime guarantee.
 
-### Milestone 3 — Research execution
+### Milestone 3 — Research execution tools
 
 Implement:
 
-- Web and literature retrieval.
-- Source provenance.
-- Workspace and repository tools.
-- Sandboxed code execution.
-- Automated testing.
-- Experiment runner.
-- Artifact management.
+- Trusted literature/search tools and source provenance.
+- Repository and project artifact access.
+- Isolated code execution, automated testing, and experiment runner.
+- Immutable experiment configurations/results and artifact manifests.
+- Explicitly scoped extensions/MCP tools for the host and Advisor.
 
-**Exit criterion:** The Engineer can implement and reproduce an empirical study end to end.
+**Exit criterion:** The Lead can implement and reproduce a small empirical study end to end, and the Advisor can inspect the relevant primary evidence read-only.
 
 ### Milestone 4 — Scientific evaluation
 
 Implement:
 
-- Experiment versioning.
-- Raw result persistence.
-- Statistical analysis.
-- Claim-to-evidence mapping.
-- Independent validation.
-- Formal Advisor review rubrics.
-- Reproducible report generation.
+- Experiment versioning and raw result persistence.
+- Statistical analysis, uncertainty reporting, and claim-to-evidence mapping.
+- Independent validation and formal stage review rubrics.
+- Reproducible report generation and final artifact manifests.
 
-**Exit criterion:** Every important reported empirical result can be traced to its experimental configuration and underlying observations.
+**Exit criterion:** Every important reported empirical result can be traced to its experimental configuration and underlying observations; completion of a Pi child run is not mistaken for scientific validity.
 
-### Milestone 5 — Consultation optimization
+### Milestone 5 — Recovery, budgets, and consultation optimization
 
 Implement:
 
-- Context package generation.
-- Consultation-priority policy.
-- Selective evidence expansion.
-- Advisor decision reuse.
-- Token and cost attribution.
-- Evaluation of consultation effectiveness.
+- Tested host-session resumption from durable project state and Advisor-run recovery where supported.
+- External compute/API quotas and project-level resource accounting.
+- Context package generation, selective evidence expansion, and decision reuse.
+- Token/cost attribution and measured evaluation of consultation effectiveness.
 
-**Exit criterion:** The system demonstrates measurable improvements in research quality, resource efficiency, or both compared with simpler configurations.
+**Exit criterion:** The system demonstrates measurable improvements in research quality and resource efficiency while preserving honest failure and inconclusive outcomes.
 
-Do not build sophisticated multi-agent memory, automated prompt optimization, or an additional agent orchestration layer before these milestones establish their necessity.
+Do not add a lifecycle workflow script, another agent role, a large memory service, or a dashboard before evaluation demonstrates that need.
 
 ---
 
@@ -1544,7 +1323,7 @@ Determine whether prompt optimization primarily improves semantic task specifica
 
 ### Stage 1 — Planning
 
-The Engineer:
+The Lead:
 
 1. Reviews empirical literature on prompting, reasoning, and jagged intelligence.
 2. Proposes competing causal hypotheses.
@@ -1558,11 +1337,11 @@ The Advisor evaluates whether the interventions genuinely distinguish the propos
 
 For example, it may identify that supplying additional domain knowledge is not a valid test of pure capability elicitation, because it changes the information available to the model.
 
-The Engineer revises the plan accordingly.
+The Lead revises the plan accordingly.
 
 ### Stage 2 — Implementation
 
-The Engineer creates:
+The Lead creates:
 
 - Prompt-variant generator.
 - Semantic equivalence validation process.
@@ -1576,7 +1355,7 @@ The Advisor reviews the design and inspects evidence that the implementation mat
 
 ### Stage 3 — Evaluation
 
-The Engineer executes the benchmark and measures:
+The Lead executes the benchmark and measures:
 
 - Baseline accuracy.
 - Optimized accuracy.
@@ -1589,7 +1368,7 @@ The Engineer executes the benchmark and measures:
 
 Suppose the results suggest that semantically equivalent prompt variations have little effect on easy extraction tasks but substantial effects on unfamiliar reasoning tasks.
 
-The Engineer should not immediately conclude that different internal reasoning circuits were activated.
+The Lead should not immediately conclude that different internal reasoning circuits were activated.
 
 The Advisor challenges that interpretation and asks whether variation in answer formatting, stochastic sampling, or computational budget can explain the observations.
 
@@ -1597,7 +1376,7 @@ Additional experiments are conducted if justified by the expected information ga
 
 ### Stage 4 — Reporting
 
-The Engineer prepares a report that distinguishes:
+The Lead prepares a report that distinguishes:
 
 - Verified observations.
 - Supported interpretations.
@@ -1617,30 +1396,30 @@ The initial system should adopt the following decisions.
 
 | Decision | Recommendation |
 |---|---|
-| Number of agents | Exactly two |
-| Primary owner | Research Engineer |
-| Strongest reasoning model | Research Advisor |
-| Orchestration | Deterministic workflow controller |
-| Agent autonomy | Within bounded research stages |
-| Advisor access | Consultation plus mandatory reviews |
-| Review enforcement | Application-level state machine |
-| Confidence assessment | Structured readiness checks, not arbitrary scores |
-| Consultation context | Compact packages with expandable evidence |
-| Shared memory | Versioned artifacts and research state |
-| Research validation | Executable evidence and independent evaluation |
-| Human involvement | Material decisions and unresolved exceptions |
-| Technology | Start with a single coherent stack |
-| Expansion strategy | Add features only when evaluations justify them |
+| Number of role definitions | Exactly two: Research Lead host prompt and Research Advisor subagent definition |
+| Research Lead | Main Pi session loaded with `.pi/agents/research-lead/agent.md` via `--append-system-prompt` |
+| Research Advisor | Read-only Pi child agent at `.pi/agents/research-advisor/agent.md` |
+| Primary owner | Research Lead host agent |
+| Orchestration | Research Lead directly invokes `research-advisor` through `pi-subagents` `subagent` tool |
+| Agent autonomy | Lead executes research work in the host session; Advisor provides bounded advice/review child runs |
+| Review enforcement | Mandatory instruction-level gate in the Lead prompt; not application-enforced unless a separate policy extension is added |
+| Confidence assessment | Structured readiness records, not arbitrary scores |
+| Consultation context | Compact task briefs with expandable primary-artifact references and fresh Advisor context |
+| Shared memory | Versioned project artifacts; Pi run/session state is consultation history, not research source of truth |
+| Research validation | Executable checks, provenance, and independent evaluation; Advisor agreement is not proof |
+| Human involvement | Lead asks the human directly for material decisions and unresolved exceptions |
+| Technology | Pi host session + `pi-subagents` extension; no second orchestration framework or workflow script in version 1 |
+| Expansion strategy | Add policy extensions, persistence services, or UI only when evaluation justifies them |
 
 ### Final architectural principle
 
 **The system should maximize the amount of scientifically reliable research accomplished per unit of human attention and computational resources.**
 
-The Research Engineer provides execution capacity, persistence, and disciplined research operations.
+The Research Lead provides execution capacity, persistence, and disciplined research operations.
 
 The Research Advisor provides high-value reasoning, theoretical depth, methodological scrutiny, and intellectual challenge.
 
-The workflow controller provides enforceable structure.
+The Research Lead host prompt and project records provide the lifecycle discipline; they do not hard-block the host from skipping a review. A separate Pi permission/policy extension is required if stage gates must be non-bypassable.
 
 The experiment and evidence infrastructure provides the foundation for determining whether their work is actually correct.
 
@@ -1652,6 +1431,9 @@ It is whether the system can repeatedly produce useful, verifiable, reproducible
 
 ## Technical and research references
 
-- [Pi coding agent](https://docs.pi.dev/latest)
-- [Pi Subagents - Agent](https://github.com/nicobailon/pi-subagents/blob/main/docs/agents.md)
-- [Pi Subagents - AgeWorkflows and orchestrationnt](https://github.com/nicobailon/pi-subagents/blob/main/docs/workflows.md)
+- [Pi coding agent documentation](https://docs.pi.dev/latest)
+- [Pi Subagents — agent definitions and tool selection](https://github.com/nicobailon/pi-subagents/blob/main/docs/agents.md)
+- [Pi Subagents — tool reference](https://github.com/nicobailon/pi-subagents/blob/main/docs/tool-reference.md)
+- [Pi Subagents — configuration](https://github.com/nicobailon/pi-subagents/blob/main/docs/configuration.md)
+
+This revision targets the Pi Subagents API described in the referenced documentation. Pin the deployed extension version and re-check agent discovery, direct delegation, model/tool configuration, and child-run behavior when upgrading it.
