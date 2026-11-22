@@ -924,6 +924,7 @@ repository/
 └── research-projects/<project-id>/
     ├── change-and-progress-logs/   # CENTRAL GOVERNANCE HUB — the single authoritative record of how the project evolves; every gate decision, cycle transition, charter or planning change, review verdict, and progress checkpoint lands here (or is indexed here) before it counts as project truth
     │   ├── index.md                # master index table governing the whole hub: every entry (charter version, plan version, review verdict, decision, cycle) is a row pointing at its artifact; the retrieval map for audits, resumption, and REPORT_GATE confirmation
+    │   ├── director-brief.md        # standing executive summary for the human director, refreshed every cycle: objective status, progress, spend-vs-budget, blockers, pending director decisions
     │   ├── charter/
     │   │   ├── research-charter.md
     │   │   └── scope-and-constraints.md
@@ -1095,7 +1096,7 @@ CREATED -> SCOPING -> PLANNING -> PLAN_GATE (plan v_n approved?)
 | CYCLE_GATE | `revise`, fix stays within plan | `remediate-implementation` → bounded inner-loop rework, then INNER_EXIT_GATE re-review |
 | CYCLE_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
 | CYCLE_GATE | `block`, or cap reached, or early-stagnation rule fired | HOLD triage → SUSPENDED + status report (SUSPENDED is terminal; HOLD needs a human decision to resume or convert) |
-| REPORT_GATE | `approve` | `complete` → COMPLETED (final research report) |
+| REPORT_GATE | `approve` | `complete` → COMPLETED (final research report: executive summary, read alone, preserves the main limitation, decision-relevant negatives, and the action boundary; Advisor confirms consistency with evidence) |
 | REPORT_GATE | `revise` | `remediate-report` → REPORTING, then re-review (max 2 rounds, then HOLD + escalate) |
 | REPORT_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
 | REPORT_GATE | `block` | HOLD triage immediately; SUSPENDED + status report only if confirmed unresolvable |
@@ -1122,6 +1123,20 @@ Use explicit project-level limits for:
 The Research Lead tracks these limits in project state. Pi Subagents can report child-run usage and accept per-run controls, but such controls do not replace external compute/API quotas or guarantee stopping all already-running work at a budget boundary. A hard tool budget can block needed operations, and deadline termination can interrupt a mutation. Prefer narrow tasks, explicit checkpoints, external resource quotas, and project-level accounting.
 
 When a limit is reached, stop advancing and report completed work, unresolved issues, consumed resources, and the next decision. No instruction should force a positive research conclusion when evidence is insufficient.
+
+### 8.6 Director communication contract
+
+The human research director governs; the Lead keeps them governable. The director should be able to tell in one read what changed, why it matters, whether they must act, and what the Lead will do next. Upward communication has a fixed shape, not ad-hoc prose:
+
+- **Standing brief (a dated view, not a second ledger).** `change-and-progress-logs/director-brief.md` is the executive summary: objective status, cycle/progress, spend-vs-budget, blockers, pending decisions. Refresh at every CYCLE_GATE and REPORT_GATE, and also on any new/closed/superseded director decision, material change in run status or research conclusion, or budget hold. Start with as-of timestamp and current stage, then what changed and why it matters, decision needed or none, next checkpoint. Link to state, evidence, and decisions instead of duplicating them. For spend, show source, timestamp, and coverage; distinguish recorded spend, estimates, and unknown external charges — the director's own tools remain the monitoring channel. At kickoff, ask what should interrupt them and what tradeoff to prioritize on borderline evidence; revisit after the first consequential decision or on feedback ("too late", "too much detail"). Preferences change delivery only — never the charter, never escalation. Never promise timed check-ins or monitoring while the host is inactive unless demonstrated.
+- **Tag by who must act, not by lifecycle state.** `DECISION-REQUIRED` when authority or essential information must come from the director — the run parks with no dependent progression until decided. `FYI` when the Lead owns the next action, even for a serious incident (“evaluation paused; reconciling the workspace, will retry within the existing cap — no action needed”). Record the fault either way. A HOLD for evidence, re-review, rework, or bounded re-request is FYI unless it needs the director; a HOLD at an authority boundary (charter change, budget exhaustion, unresolvable blocker, no credible lever) is DECISION-REQUIRED. Escalate on real authority boundaries or exhausted recovery, never merely on the first error.
+- **Decision requests that are easy to answer.** Put the ask in the first sentence: why now, the viable options with consequences, the Lead's recommendation and what would change it, what happens without a reply. Deadlines only for real cutoffs; otherwise “before the next run.” One decision ID shared across chat, indexed record, and brief.
+- **Close the loop.** Distinguish questions and preferences from authorization. Ambiguous reply → one focused question, never guess; clear reply → act, no ceremonial reconfirmation. Read back the effect, not the transcript (“D-014 recorded: narrow to X; Y out of scope; revising plan for PLAN_GATE before implementation”). Close or supersede the open entry and refresh the brief. If posting or recording fails, disclose the gap when possible and reconcile by ID on resume — never infer receipt or approval. A stop order is honored before polishing records; distinguish work told to stop from work confirmed stopped.
+- **Durable and in-session.** Every DECISION-REQUIRED message is recorded in the hub (`decisions/`, indexed in `index.md`) AND surfaced to the human in-session immediately. In-session alone evaporates; records alone go unread — both are mandatory.
+- **Director questions.** Answer from the freshest records and name discrepancies (“the brief predates the timeout; state shows evaluation paused; confirmation not yet recorded”). Say explicitly when the answer is not recorded — never improvise.
+- **Final report audience.** Written for two readers: executive summary for the director (what was found, what it means, what remains open) over a technical body for the record. REPORT_GATE confirms the summary, read alone, preserves the main limitation, decision-relevant negatives, and the boundary on what the director should do with the finding.
+
+**SUSPENDED conversion authority.** Reaching the charter's cycle cap or firing the early-stagnation rule converts to SUSPENDED by the Lead (charter-mandated, mechanical) with a report; a confirmed-unresolvable blocker converts by the Lead after triage with evidence preserved. Cease, narrow, or resume-with-more-budget decisions convert only by the human director — the Lead HOLDs, reports, and awaits. Budget exhaustion alone never converts without a human decision.
 
 ---
 
@@ -1522,6 +1537,9 @@ Test the system against deliberate failures.
 | Advisor receives insufficient context | Requests primary evidence |
 | Advisor gives contradictory advice | Lead records conflict and seeks empirical resolution |
 | Experiment returns negative result | Preserve and report honestly |
+| Upward message lacks tag or record | Lead tags every message DECISION-REQUIRED or FYI and records the former; untagged escalations are a process failure |
+| Director asks mid-run status | Lead answers from the standing brief and indexed records, or states explicitly what is not yet recorded |
+| Ambiguous director reply | Lead asks one focused question, never guesses; reads back the recorded effect; closes or supersedes the entry and refreshes the brief |
 | Experiment results are inconsistent | Investigate variability and validity |
 | Lead host session or Pi process is interrupted | Start a new host session with the Research Lead prompt, reconcile project state/artifacts, and resume explicitly; recover an Advisor child run only when supported by `pi-subagents`, otherwise relaunch from durable evidence |
 | Worker run interrupted after changing files but before acceptance | Treat as no-result: reconcile the workspace against the assignment `base_revision`, quarantine unaccepted changes, re-verify from the recorded revision, then retry or reassign — never accept orphaned mutations |
