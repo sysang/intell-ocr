@@ -170,7 +170,7 @@ This design intentionally relies on the host Research Lead to follow the mandato
 | Human escalation | Asks the human directly when necessary | Can recommend escalation | Reports blocker to Lead (never contacts human directly) |
 | Budget management | Owns project-level budget decisions | Uses allocated consultation budget | Uses allocated implementation budget |
 
-The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests) and no `subagent` delegation tool — it cannot spawn further agents. The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
+The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` skill, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Advisor or Lead roles. The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
 
 ---
 
@@ -906,6 +906,7 @@ repository/
 │   │   │   └── agent.md       # discovered Pi subagent
 │   │   └── research-lead/
 │   │       └── agent.md       # appended to the main Pi session
+│   ├── plans/               # Worker plan files (implementation-workflow); written only when the package explicitly grants its own plan file — local scratch, not governance records
 │   └── settings.json          # agent discovery + model overrides
 └── research-projects/<project-id>/
     ├── change-and-progress-logs/   # CENTRAL GOVERNANCE HUB — the single authoritative record of how the project evolves; every gate decision, cycle transition, charter or planning change, review verdict, and progress checkpoint lands here (or is indexed here) before it counts as project truth
@@ -1238,11 +1239,11 @@ The Lead prompt is not a child agent and should not be launched with `subagent`.
 
 1. The exact frontmatter keys the deployed `pi-subagents` honors (`tools`, `model`, `thinking`, `systemPromptMode`, `inheritProjectContext`, `defaultContext`, `acceptanceRole`, aliases) — the reference file's keys are examples, not proof.
 2. What a fresh child context excludes (host conversation, host system prompt) and still loads (project context files, skills, tool providers) for each child.
-3. The effective tool list of each child at launch (inspect, don't assume), including that no delegation-capable tool is reachable from either child.
+3. The effective tool list of each child at launch (inspect, don't assume), including that no delegation-capable tool is reachable from the Advisor child, and that the Worker child's only delegation path is the bounded `allowNestedSubagents` grant capped at depth 1.
 4. The `agentExcludeDirs` path base and its effect on discovery vs. direct prompt loading.
 5. Structured-output support and schema-constraint behavior for gate verdicts (§4.4, §11.2–11.3).
 
-The Research Lead's tools come from the main Pi host configuration. Ensure the `pi-subagents` extension and its `subagent` tool are available in that session. The Advisor's frontmatter should set an explicit read-only tool allowlist (for example `read`, `grep`, `find`, `ls`, plus selected read-only evidence providers), project-context inheritance as needed, a separately configurable model, and no nested subagent delegation. The Worker's frontmatter should set a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution such as `bash`/`codemode` for assigned paths and tests), no `subagent` tool, and a separately configurable model. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
+The Research Lead's tools come from the main Pi host configuration. Ensure the `pi-subagents` extension and its `subagent` tool are available in that session. The Advisor's frontmatter should set an explicit read-only tool allowlist (for example `read`, `grep`, `find`, `ls`, plus selected read-only evidence providers), project-context inheritance as needed, a separately configurable model, and no nested subagent delegation. The Worker's frontmatter should set a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution such as `bash`/`codemode` for assigned paths and tests), the `implementation-workflow` skill, a bounded nested-delegation grant (`allowNestedSubagents: true`, `maxSubagentDepth: 2`), and a separately configurable model. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
 
 ### 10.3 Host-led Advisor delegation
 
@@ -1294,8 +1295,8 @@ The Lead must be capable enough to implement and evaluate real experiments. A ch
 
 **Engineering Worker subagent**
 
-- Read/inspect tools plus `edit`, `write`, and scoped command execution (`bash`/`codemode`) limited to assigned paths, tests, and verification commands.
-- No access to project plans, decisions, reviews, or state records; no `subagent` delegation tool — it cannot spawn further agents.
+- Read/inspect tools plus `edit`, `write`, and scoped command execution (`bash`/`codemode`) limited to assigned paths, tests, and verification commands; the `implementation-workflow` skill for major-task execution.
+- No access to project plans, decisions, reviews, or state records — except the package's own plan file under `.pi/plans/` when the package explicitly grants it; bounded nested delegation only (`allowNestedSubagents`, depth ≤ 2, skill-directed, never to Advisor/Lead roles) — no unrestricted fan-out.
 - Returns the Section 8.3 structured result for every assignment, including blocked or partial work; reports blockers in the returned result (no heartbeat channel in version 1), never to the human directly.
 
 Apply sandboxing, filesystem/network boundaries, secrets management, resource quotas, restricted external side effects, prompt-injection defenses, and human approval for irreversible or externally visible actions at the host/tool layer. Pi tool allowlists are not an operating-system sandbox. Retrieved pages, repositories, datasets, prompts, and dependencies are untrusted data—not instructions that may override either role contract.
@@ -1660,7 +1661,7 @@ The initial system should adopt the following decisions.
 | Number of role definitions | Exactly three: Research Lead host prompt, Research Advisor subagent, Engineering Worker subagent |
 | Research Lead | Main Pi session loaded with `.pi/agents/research-lead/agent.md` via `--append-system-prompt` |
 | Research Advisor | Read-only Pi child agent at `.pi/agents/research-advisor/agent.md` |
-| Engineering Worker | Bounded-writer Pi child agent at `.pi/agents/engineering-worker/agent.md` (no subagent delegation) |
+| Engineering Worker | Bounded-writer Pi child agent at `.pi/agents/engineering-worker/agent.md` (nested delegation bounded: skill-directed, depth ≤ 2) |
 | Primary owner | Research Lead host agent |
 | Orchestration | Research Lead directly invokes `research-advisor` and `engineering-worker` through `pi-subagents` `subagent` tool |
 | Agent autonomy | Lead executes research work in the host session; Advisor provides bounded advice/review child runs; Worker executes only assigned implementation packages and returns observed evidence |
