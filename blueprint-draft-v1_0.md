@@ -72,9 +72,9 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 **P8. Research integrity.** Negative results, unresolved questions, failed experiments, and contradictory observations must be preserved and reported.
 
-**P9. Durable execution.** Research Lead maintains project artifacts, decisions, and checkpoints in the research workspace so work can resume in a new or recovered host session. Advisor subagent run/session records provide consultation traceability, but Pi runtime artifacts are not the long-term research source of truth and their retention is configuration-dependent.
+**P9. Durable execution via git checkpoints.** The Research Lead maintains project artifacts, decisions, and checkpoints in the research workspace so work can resume in a new or recovered host session — and checkpoints mean git commits, not unsaved working-tree state. Commit at every gate decision, cycle boundary, and accepted Worker delivery, with messages naming the gate, verdict, and cycle (e.g. `CYCLE_GATE approve/replan cycle 2, manifest-v3`). Never rewrite published history; versioned artifacts plus manifest hashes make each commit independently auditable. Advisor subagent run/session records provide consultation traceability, but Pi runtime artifacts are not the long-term research source of truth and their retention is configuration-dependent.
 
-**P10. Resource-aware autonomy.** Every research project operates within explicit budgets for computation, model usage, iteration, and external actions.
+**P10. Resource-aware autonomy with human-held stop authority.** Every research project operates within explicit budgets for computation, model usage, iteration, and external actions, tracked by the Lead in project state. Monitoring is the director's prerogative: the human research director watches expenditure with their own tools and alone decides to cease the research. On exhaustion the Lead HOLDs, reports consumption honestly, and awaits the human decision — it neither terminates the program unilaterally nor continues past a spent budget on its own authority.
 
 ---
 
@@ -1503,7 +1503,7 @@ Test the system against deliberate failures.
 | Experiment results are inconsistent | Investigate variability and validity |
 | Lead host session or Pi process is interrupted | Start a new host session with the Research Lead prompt, reconcile project state/artifacts, and resume explicitly; recover an Advisor child run only when supported by `pi-subagents`, otherwise relaunch from durable evidence |
 | Worker run interrupted after changing files but before acceptance | Treat as no-result: reconcile the workspace against the assignment `base_revision`, quarantine unaccepted changes, re-verify from the recorded revision, then retry or reassign — never accept orphaned mutations |
-| Research budget is exhausted | HOLD, report status, and ask the human (resume only on extended budget; otherwise SUSPENDED + status report) |
+| Research budget is exhausted | HOLD, report consumption, and ask the human; only the director decides resume (extended budget), narrow, or cease (→ SUSPENDED + status report) |
 | Retrieved document contains malicious instructions | Treat as untrusted content |
 | Evaluation data is contaminated | Flag the validity threat and stop affected claims |
 
