@@ -5,7 +5,7 @@
 
 > Filename note: promoted from draft `blueprint-draft-v1_0.md`; this file (`blueprint-v1.md`) is now the authoritative working file.
 
-**Primary objective:** Build an autonomous, evidence-driven research system that turns a human-defined direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report. The Research Lead host uses `pi-subagents` to call seven fixed children (the Research Advisor, Engineering Worker, three specialist architects, and two OKF knowledge services) and an on-demand pool of general subagents for bounded tasks.
+**Primary objective:** Build an autonomous, evidence-driven research system that turns a human-defined direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report. The Research Lead host uses `pi-subagents` to call seven fixed children (the Research Advisor, Engineering Worker, three specialist architects, and two OKF knowledge services) and an on-demand pool of general subagents for bounded tasks outside the seven fixed roles' scopes.
 
 ---
 
@@ -56,7 +56,7 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 ### 1.2 Core principles
 
-**P1. Fixed roles, flexible task capacity.** The seven named children remain the fixed roster (§2.4); only their designated roles have standing responsibilities. Do not add a Planner, Critic, Reviewer, or Evaluator as a lifecycle role. The Lead may also invoke operator-approved general subagents on demand for bounded tasks (§3.5). Pool members have no lifecycle authority and cannot replace any required call to a fixed role. The Lead is the sole invoker of the pool and both OKF services.
+**P1. Fixed roles, flexible task capacity.** The seven named children remain the fixed roster (§2.4); only their designated roles have standing responsibilities. Do not add a Planner, Critic, Reviewer, or Evaluator as a lifecycle role. The Lead considers operator-approved general subagents only for bounded tasks outside the scope of all seven fixed roles (§3.5). Pool members have no lifecycle authority and cannot replace a fixed role on work it covers. The Lead is the sole invoker of the pool and both OKF services.
 
 **P2. One accountable owner.** The Lead owns every research deliverable. Advisor feedback does not transfer implementation responsibility.
 
@@ -72,9 +72,9 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 **P8. Research integrity.** Negative results, unresolved questions, failed experiments, and contradictory observations must be preserved and reported.
 
-**P9. Durable execution via git checkpoints.** The Research Lead maintains project artifacts, decisions, and checkpoints in the research workspace so work can resume in a new or recovered host session — and checkpoints mean git commits, not unsaved working-tree state. Commit at every gate decision, cycle boundary, and accepted Worker delivery, with messages naming the gate, verdict, and cycle (e.g. `CYCLE_GATE approve/replan cycle 2, manifest-v3`). Never rewrite published history; versioned artifacts plus manifest hashes make each commit independently auditable. Advisor subagent run/session records provide consultation traceability, but Pi runtime artifacts are not the long-term research source of truth and their retention is configuration-dependent.
+**P9. Durable execution via git checkpoints.** The Research Lead maintains project artifacts, decisions, and checkpoints in the research workspace so work can resume in a new or recovered host session — and checkpoints mean git commits, not unsaved working-tree state. Commit at every gate decision, cycle boundary, and accepted workspace-changing delivery, with messages naming the gate, verdict, and cycle (e.g. `CYCLE_GATE approve/replan cycle 2, manifest-v3`). Never rewrite published history; versioned artifacts plus manifest hashes make each commit independently auditable. Advisor subagent run/session records provide consultation traceability, but Pi runtime artifacts are not the long-term research source of truth and their retention is configuration-dependent.
 
-**P10. Resource-aware autonomy with human-held stop authority.** Every research project operates within explicit budgets for computation, model usage, iteration, and external actions, tracked by the Lead in project state. Monitoring is the director's prerogative: the human research director watches expenditure with their own tools and alone decides to cease the research. On exhaustion the Lead HOLDs, reports consumption honestly, and awaits the human decision — it neither terminates the program unilaterally nor continues past a spent budget on its own authority.
+**P10. Resource-aware autonomy with human-held stop authority.** Every research project operates within explicit budgets for computation, model usage, iteration, and external actions, tracked by the Lead in project state. Monitoring is the director's prerogative: the human research director watches expenditure with their own tools and alone decides to cease the research. On exhaustion of project-wide resource budgets (e.g., tokens, compute, spend), the Lead HOLDs, reports consumption honestly, and awaits the human decision. Assignment and loop limits have their own bounded recovery and stop rules (§8.3–§8.6); none authorizes spending past a project-wide resource budget.
 
 ---
 
@@ -86,7 +86,7 @@ The target has three role definitions and one host/subagents split:
 2. **Research Advisor subagent:** `.pi/agents/research-advisor/agent.md`, discovered and invoked through `pi-subagents`.
 3. **Engineering Worker subagent:** `.pi/agents/engineering-worker/agent.md`, discovered and invoked through `pi-subagents` for bounded implementation work.
 
-The Lead delegates suitable standalone work as required by §3.5: the Engineering Worker is the default for implementation, mandatory reviews go to the Research Advisor, and the general pool can take bounded tasks, including implementation, when an approved member is a better fit or adds useful capacity. No separate workflow script or engine, new standing role, or second dispatch mechanism is needed.
+The Lead classifies each standalone task against the fixed roster before assigning it (§3.5). Work within a fixed role's scope goes to that role; only work outside all seven fixed scopes may be considered for the general pool. No separate workflow script or engine, new standing role, or second dispatch mechanism is needed.
 
 ### 2.1 Pi-native logical architecture
 
@@ -155,7 +155,7 @@ The Research Lead host prompt defines the loop discipline (inner/outer loop rout
 
 Use a structured Advisor response contract and Pi structured output where appropriate; check the verdict and cited evidence rather than relying on free-form agreement. A valid schema or successful Advisor child run proves only response shape/run completion—not scientific correctness.
 
-The host stays actively aware of every child run it launches — silent stalls are a first-class failure mode. After each dispatch the Lead confirms launch success promptly (status check against the recorded run ID), polls bounded background runs instead of assuming completion, and reconciles run/session artifacts on host resume. Any child failure (launch rejection such as an unresolvable model, mid-run error, timeout, missing result) is captured with its error text, recorded in project state, and surfaced to the human in-session immediately — HOLD plus direct notification, never silent retry beyond the capped rounds. Before any real research run, smoke-test the seven fixed child definitions (Advisor, Worker, three architects, reader, writer) with a trivial task. Pool candidates are verified on first use and after relevant runtime or profile changes (§10.2).
+The host stays actively aware of every child run it launches — silent stalls are a first-class failure mode. After each dispatch the Lead confirms launch success promptly (status check against the recorded run ID), polls bounded background runs instead of assuming completion, and reconciles run/session artifacts on host resume. Record every child failure (launch rejection, mid-run error, timeout, missing or invalid result) in project state with the error or validation findings, affected assignment or gate, and next action. Apply dependency-scoped recovery and notification under §8.6; never retry beyond the applicable cap. Before any real research run, smoke-test the seven fixed child definitions (Advisor, Worker, three architects, reader, writer) with a trivial task. Verify pool candidates before every launch, including smoke tests (§10.2).
 
 This design intentionally relies on the host Research Lead to follow the mandatory lifecycle. `pi-subagents` does not enforce research-stage gates on direct host actions. If non-bypassable policy enforcement becomes a requirement, add a separately designed and tested Pi permission/policy extension; do not claim the role prompts alone provide hard enforcement.
 
@@ -214,7 +214,7 @@ Search, retrieve, compare, and synthesize scientific papers, technical documenta
 
 **Software engineering**
 
-Specify bounded implementation work packages (scope, target paths, acceptance criteria, verification commands), delegate to the Engineering Worker by default or to an eligible pool member (§3.5), and verify the returned evidence. Only the Lead decides whether the implementation satisfies the methodology and accepts it into the project.
+Specify bounded implementation work packages (scope, target paths, acceptance criteria, verification commands), assign work within the Engineering Worker's remit to that role, and verify the returned evidence (§3.5). Only the Lead decides whether the implementation satisfies the methodology and accepts it into the project.
 
 **Experimental methodology**
 
@@ -308,9 +308,9 @@ For Pi orchestration, a material consultation trigger leads the host Research Le
 
 **Delegation is mandatory for a meaningful `READY` task that is easy to hand off, has concrete scope, and has a suitable authorized subagent within budget.** The Lead first looks for independently verifiable pieces rather than keeping a whole mixed task in the host. A handoff is ready when it can name the deliverable, permitted inputs and actions, exclusions, and a checkable acceptance criterion without sharing the Lead's live reasoning. Domain fit, independent checking, or useful parallelism can improve the result; the Lead does not have to prove improvement in advance. Stage descriptions that say the Lead executes work describe its accountability, not a requirement to do every step personally.
 
-- **Choose the assignee by responsibility.** Keep required Advisor reviews, architect consultations, and OKF operations with their designated roles. The Engineering Worker remains the default implementer; a suitable pool member can also take standalone code, test, or analysis packages. Examples include extracting findings from specified papers, writing a test fixture under a granted path, or running prescribed verification. The Lead retains research judgment, routing, acceptance, and director communication. It may do tightly coupled work or trivial actions directly; for a meaningful task not delegated, record the concrete reason in its existing readiness/assignment record. If no eligible child can take it, the Lead may proceed directly only where existing budget, HOLD, and authority rules allow it; required calls have no pool or host substitute.
-- **Use an approved pool, not the entire discovered catalog.** The operator supplies an explicit list of eligible canonical names in the Lead's startup context. The Lead chooses among those already discoverable through `pi-subagents` without asking for approval for each task. A pool member may use only capabilities allowed by both its verified profile and its assignment. A write or execution assignment names granted paths and allowed commands or tool operations; no implicit write or execution permission comes from pool membership. Pool members cannot change governance records or state counters, commit, delegate, issue gate verdicts, make research decisions, accept work, or contact the director. No agent is created ad hoc.
-- **Reuse existing dispatch and acceptance records.** Send a fresh, bounded brief with an assignment ID, source or artifact versions, permitted inputs and actions, expected deliverable and acceptance checks, and a time/usage limit. Reuse §2.3 and §8.3 for dispatch tracking, failure handling, and acceptance; assignments that modify a workspace or run commands follow the work-package controls in §8.3 and §10.4. Require the result to echo the assignment ID and return the deliverable, evidence references, and any gaps or blockers; include changed paths and observed verification for write assignments. The Lead verifies results before use.
+- **Classify against the fixed roster first.** Compare the task's deliverable with the seven fixed-role scopes (§2.4). Split mixed work into separable packages when practical; bundling tasks never makes in-scope work eligible for the pool. If a fixed role covers the task, route it to that role: for example, the Engineering Worker handles an assigned test fixture, the Advisor handles a gate review, and `okf-reader` retrieves hub evidence. Only if none of the seven roles covers the task may the Lead consider the general pool, for example to extract findings from a supplied set of primary papers. Record why no fixed role covers it before dispatch. A matching agent being busy or unavailable, or a pool member being cheaper or more capable, does not make the task eligible for the pool. The Lead retains research judgment, routing, acceptance, and director communication. It may do tightly coupled work or trivial actions directly; for a meaningful task not delegated, record the concrete reason in its existing readiness/assignment record. If no eligible child can take it, the Lead may proceed directly only where existing budget, HOLD, and authority rules allow it; required calls have no pool or host substitute.
+- **Use an approved pool, not the entire discovered catalog.** The operator supplies the Lead with explicit approvals for canonical names bound to a resolved profile and its effective capabilities (§10.2). The Lead chooses among verified approvals without asking again for each assignment. A pool member may use only capabilities permitted by both its approved profile and the assignment. Name permitted read inputs separately from any writable paths, authorized commands or tool operations, and external actions; read-only does not imply unrestricted read access. Pool members cannot change governance records or state counters, commit, delegate, issue gate verdicts, make research decisions, accept work, or contact the director. No agent is created ad hoc.
+- **Reuse existing dispatch and acceptance records.** Record `READY`, the assignment ID, dependencies and whether the output is required, source or artifact versions, permitted inputs and actions, expected deliverable and acceptance checks, and time/usage limits. Dispatch a fresh brief and use the pool result contract in §8.3 for every result; writes and execution also follow §10.4. No pool result can satisfy a required fixed-role call, even if it contains a verdict or other review-like output. Handle failures by dependency under §8.6.
 - **Use `codemode` where it helps.** The Lead and approved pool members may use it to batch or filter authorized tool calls or run explicitly permitted non-LLM models, such as classifiers. Pi's `codemode` runs scripts in a locked-down QuickJS WebAssembly sandbox, with no direct Node APIs, filesystem, network, or timers. Scripts reach the outside world through the session's tools and model APIs. Those calls can have real side effects and are not rolled back on script failure. The sandbox constrains the script, not the permissions of the tools or models it calls; the same assignment limits apply to direct and scripted calls (§10.6).
 
 ---
@@ -411,9 +411,9 @@ Every mandatory gate review must return a structured decision bound to the exact
 - **Block** means a fundamental methodological, safety, or validity problem was found; the response must say what would need to change for the work to continue responsibly.
 - **Inconclusive** means the Advisor lacks sufficient evidence to determine pass/fail; the response must name the missing evidence in `additional_evidence_required`.
 
-**Verdicts do not route by themselves.** The Lead selects the route from the verdict plus the termination check, using only the legal combinations in the authoritative transition table (§8.4): `approve` enables the gate's forward route; `revise` returns to a named remediation state with a bounded re-review (default max 2 revise rounds per gate, then HOLD and escalate); `inconclusive` permits bounded evidence gathering plus one re-review, then HOLD if still unresolved — never a direct terminal stop; `block` pauses work into HOLD for triage, and only a confirmed-unresolvable blocker (or human decision) converts HOLD into terminal SUSPENDED.
+**Verdicts do not route by themselves.** The Lead selects the route using the authoritative table in §8.4. `approve` enables only the forward routes whose other conditions are met; `revise` normally permits bounded remediation (default max 2 revise rounds, then HOLD and escalate), subject to the CYCLE_GATE stop rules. `inconclusive` permits bounded evidence gathering plus one re-review, then HOLD if unresolved; `block` requires HOLD triage and converts to SUSPENDED only on a confirmed-unresolvable blocker or human decision.
 
-**Fail-closed validation.** The Lead must validate every gate response before acting on it: parseable against the schema above, `gate` matching the gate actually invoked, and `review_target` matching the submitted manifest version. Any failure — malformed output, missing verdict, wrong gate, stale manifest — is a no-verdict: the Lead records it, issues a bounded re-request (default max 2), and HOLDs the gate; if re-requests are exhausted or the Advisor is unavailable, the Lead HOLDs and escalates to the human. The same fail-closed rule covers knowledge-service results at gates (§8.7) and mechanical tool results (§10.7): no gate advances on an unvalidated or stale service result or a failed/missing tool check. Silence, an expired run, or a `complete` run status is never approval. A verdict is invalidated by any later implementation change to the files it covered; per-attempt checks re-validate, and interface/contract-level changes require a fresh gate review.
+**Fail-closed validation.** The Lead must validate every gate response before acting on it: parseable against the schema above, `gate` matching the gate actually invoked, and `review_target` matching the submitted manifest version. For PLAN_GATE, the request identifies the phase (`protocol` or `readiness`), and the submitted manifest must match that phase; a protocol verdict cannot be reused for readiness. Any failure — malformed output, missing verdict, wrong gate, wrong phase target, stale manifest — is a no-verdict: the Lead records it and HOLDs the gate during bounded re-requests (default max 2); escalate if recovery is exhausted or the Advisor is confirmed unavailable. The same fail-closed rule covers knowledge-service results at gates (§8.7) and mechanical tool results (§10.7): no gate advances on an unvalidated or stale required result or a failed/missing required check. Silence, an expired run, or a `complete` run status is never approval. A verdict is bound to the reviewed manifest; changes to its covered evidence require a fresh verdict before relying on the changed package, except for the explicit readiness coverage rule in §5.3.
 
 **Bounded evidence expansion.** When the Advisor requests more evidence, the Lead supplies it in at most 2 expansion rounds per gate. A follow-up review — whether it resumes context or starts a fresh child — must carry the original rubric, the prior findings, and the same manifest version (or a new versioned manifest if evidence changed). Advisory consultations and mandatory gate verdicts are labeled differently in project records; advice never satisfies a gate unless the call explicitly applied the gate rubric to the submitted manifest.
 
@@ -461,12 +461,12 @@ Human request
      v
 Research Lead host session
      |
-  PLANNING ----------> PLAN_GATE (Advisor review)
+  PLANNING ----------> PLAN_GATE (protocol approval)
      |
      v
   +---------------- OUTER CYCLE n (plan v_n) ----------------+
   |  1. IMPLEMENTATION ⇄ EVALUATION   (inner loop)          |
-  |     iterate to best achievable outcome under plan v_n   |
+  |     PLAN_GATE readiness before full evaluation          |
   |     |
   |     v                                                    |
   |  2. INNER_EXIT_GATE (Advisor review of evidence package,|
@@ -478,24 +478,23 @@ Research Lead host session
   |     |
   |     +-- objective achieved ---> REPORTING               |
   |     +-- approved replan + budget remains ---> cycle n+1 |
-  |     +-- blocker / budget spent / early stagnation ------>|
-  |             HOLD triage -> SUSPENDED + status report    |
+  |     +-- HOLD or terminal stop per §8.4 ---------------->|
   +----------------------------------------------------------+
 ```
 
 Two deliberately different pauses: **HOLD** is resumable (awaiting evidence, a bounded re-review, Worker rework, or a human decision); **SUSPENDED** is terminal and always produces a preserved-evidence status report — distinct from an approved final research report, which only COMPLETED produces.
 
-**Three check levels — do not confuse them.** (1) *Per-attempt checks* (tests, smoke evaluations) run inside the inner loop after every implementation change; they decide retry vs. exit, never approval. (2) *Implementation readiness* is the PLAN_GATE `approve` verdict covering plan v_n's implementation baseline; per-attempt fixes stay covered by it unless they touch the interfaces, contracts, or validity assumptions the approval rested on — such changes invalidate the approval and require a fresh PLAN_GATE review before full evaluation. (3) *INNER_EXIT_GATE* is the mandatory Advisor review that closes the inner loop. It admits two package kinds: a complete evidence package, or an explicitly incomplete/invalid package submitted **for diagnosis only** (attempt budget spent, or the fix would require a plan change). A diagnosis-only package may route to ANALYSIS; it may never support a success claim or a `report` route.
+**Two PLAN_GATE phases, plus checks and exit review.** Protocol approval comes before substantial implementation. A separate readiness approval of the built baseline and passed tests is required before the first full evaluation of each cycle (§5.3). Per-attempt checks (tests and smoke evaluations) run after implementation changes; they never supply an Advisor verdict. Later fixes stay covered by readiness approval only under §5.3. *INNER_EXIT_GATE* is the mandatory Advisor review that closes the inner loop. It admits two package kinds: a complete evidence package, or an explicitly incomplete/invalid package submitted **for diagnosis only** (attempt budget spent, or the fix would require a plan change). A diagnosis-only package may route to ANALYSIS; it may never support a success claim or a `report` route.
 
-**Inner loop — IMPLEMENTATION ⇄ EVALUATION.** Commits endeavor to achieve the best outcome under the current approved plan (plan v_n): build/fix, run smoke tests and evaluations, diagnose failures, and iterate. The Lead retains tightly coupled, plan-sensitive work and delegates eligible implementation packages to the Engineering Worker or an approved pool member (scoped spec, explicit file paths, acceptance criteria, verification commands; §3.5). The Lead records READY before dispatch and verifies the returned evidence before acceptance (§8.3). The loop stays inside the plan; it does not change research questions, hypotheses, metrics, or validity criteria. A fix that requires changing the plan (new hypothesis, different baselines/metrics, relaxed success criteria) exits early to ANALYSIS with the evidence marked incomplete-for-diagnosis, instead of silently redefining success inside the loop.
+**Inner loop — IMPLEMENTATION ⇄ EVALUATION.** Commits endeavor to achieve the best outcome under the current approved plan (plan v_n): build/fix, run smoke tests and evaluations, diagnose failures, and iterate. The Lead retains tightly coupled, plan-sensitive work and routes standalone packages by scope (§3.5): implementation within the Engineering Worker's remit goes to that role; only work outside all fixed roles' scopes is eligible for the pool. The Lead records READY before dispatch and verifies the returned evidence before acceptance (§8.3). The loop stays inside the plan; it does not change research questions, hypotheses, metrics, or validity criteria. A fix that requires changing the plan (new hypothesis, different baselines/metrics, relaxed success criteria) exits early to ANALYSIS with the evidence marked incomplete-for-diagnosis, instead of silently redefining success inside the loop.
 
-**Outer loop — [PLANNING → IMPLEMENTATION → EVALUATION] → ANALYSIS → [PLANNING → IMPLEMENTATION → EVALUATION].** Commits endeavor to improve or resolve limitations of the initial plan: each outer cycle (n = 1, 2, …) runs the current plan through implementation and evaluation, then ANALYSIS diagnoses what limited the outcome (method, baselines, data, metrics, scope, assumptions) and proposes plan v_{n+1}. Re-planning requires an explicit cycle decision plus Advisor review; the Lead must not start the next outer cycle on its own authority.
+**Outer loop — [PLANNING → IMPLEMENTATION → EVALUATION] → ANALYSIS → [PLANNING → IMPLEMENTATION → EVALUATION].** Commits endeavor to improve or resolve limitations of the initial plan: each outer cycle (n = 1, 2, …) runs the current plan through implementation and evaluation, then ANALYSIS diagnoses what limited the outcome (method, baselines, data, metrics, scope, assumptions) and proposes plan v_{n+1}. Only an Advisor `approve` at CYCLE_GATE on a cycle decision proposing `replan`, with the conditions in §8.4 met, authorizes the Lead to start and charge the next cycle. Drafting a replacement plan is not authorization.
 
 **Termination conditions (checked at every ANALYSIS gate, and immediately when discovered):**
 
 1. **Objective achieved** — the approved success criteria are met with valid evidence and Advisor concurrence → enter REPORTING, then COMPLETED.
 2. **Unsolvable blocker** — a fundamental methodological, safety, resource, or validity problem with no responsible workaround (Advisor `block` verdict the Lead cannot remediate, missing authority/data, invalidated core assumption) → HOLD immediately for triage (preserve evidence, ask the human where human authority could unblock); convert to SUSPENDED with an honest status report only when confirmed unresolvable or the human so decides. Never downgrade a blocker into an implicit success.
-3. **Stagnation despite committed effort** — significant effort has been committed without noticeable positive progress. Quantification: a per-project outer-cycle budget of **3 to 5 outer cycles** (default 4, set in the research charter; the human may override within [3, 5]). Each ANALYSIS records a progress verdict (`advanced | marginal | stalled | regressed`) with evidence. Precedence at CYCLE_GATE: check validated objective achievement **first** — a met objective reports even on the final allowed cycle; only then apply the cap. The cap prohibits authorizing cycle N+1 even when progress is `advanced`. Early stop: 2 consecutive `stalled`/`regressed` cycles with no credible new lever (charter-adjustable, default 2) also ends looping. Any stop for stagnation lands in SUSPENDED with the best-supported conclusion preserved (including inconclusive) — never extra cycles to manufacture a positive result.
+3. **Stagnation despite committed effort** — significant effort has been committed without noticeable positive progress. Quantification: a per-project outer-cycle budget of **3 to 5 outer cycles** (default 4, set in the research charter; the human may override within [3, 5]). Each ANALYSIS records a progress verdict (`advanced | marginal | stalled | regressed`) with evidence. Validated objective achievement can route to REPORTING even on the final allowed cycle. The cap prohibits authorizing cycle N+1 even when progress is `advanced`. Early stop: 2 consecutive `stalled`/`regressed` cycles with no credible new lever (charter-adjustable, default 2) also prohibits a new cycle. Apply §8.4 to decide whether the current cycle needs bounded remediation or HOLD, or can stop in SUSPENDED with a status report. Never start extra cycles to manufacture a positive result.
 
 Before each meaningful task, the Lead assesses readiness. It investigates bounded factual/technical uncertainty directly, invokes the Advisor for material conceptual or methodological uncertainty, and asks the human when authority or essential information is missing.
 
@@ -510,26 +509,25 @@ Lead task-readiness check
 Inner-loop iteration complete (tests + evaluation run)
     |
     +-- executable checks pass, target met or attempt budget spent
-    |       -> exit inner loop -> ANALYSIS + Advisor cycle review
+    |       -> INNER_EXIT_GATE, then ANALYSIS only on approval
     +-- fix stays within plan v_n -> next IMPLEMENTATION iteration
-    +-- fix requires plan change -> exit to ANALYSIS (no silent redefinition)
+    +-- fix requires plan change -> diagnosis-only INNER_EXIT_GATE
+            (no silent redefinition)
 
 ANALYSIS + CYCLE_GATE review (Advisor: interpretation + limitation
     diagnosis + progress verdict + route; see §8.4 table)
     |
     +-- approve + objective met -> REPORTING (REPORT_GATE)
-    +-- revise -> bounded remediation in named state -> re-review
-    |       (default max 2 revise rounds per gate, then HOLD + escalate)
-    +-- replan route approved + outer budget remains -> PLAN_GATE for v_n+1
-    +-- inconclusive -> bounded evidence gathering + one re-review,
-    |       then HOLD if still unresolved
-    +-- block / newly discovered blocker -> HOLD triage immediately;
-    |       SUSPENDED + status report only if confirmed unresolvable
-    +-- outer cap reached without objective / early-stagnation rule fired
-            -> SUSPENDED + status report (best-supported conclusion)
+    +-- approve/replan + no stop condition -> charge cycle n+1
+    |       -> PLANNING -> PLAN_GATE (protocol for v_n+1)
+    +-- revise -> bounded remediation and CYCLE_GATE re-review,
+    |       or stop if the fix requires a new cycle and none is allowed
+    +-- inconclusive -> bounded evidence + re-review, then HOLD if unresolved
+    +-- block / no-verdict -> HOLD; no advancement
+    +-- other terminal stop -> SUSPENDED + status report (see §8.4)
 ```
 
-**Loop accounting (mandatory project state).** The Lead tracks `outer_cycle` (current plan version n), `inner_attempt` (iteration count within the cycle), per-cycle progress verdicts, Advisor verdicts at each gate, and the remaining outer-cycle budget. Inner-loop iterations do not increment the outer counter; only a CYCLE_GATE-authorized replan starts cycle n+1. **Charging rules:** an outer cycle is charged when the replan is authorized — a plan gate that then fails still consumes the authorized cycle (no free retries); an inner attempt is charged when implementation changes are integrated into the cycle workspace, even if evaluation never completes (no-change interruptions are logged, not charged). Gate revise rounds (default max 2 per gate) and consultation retries (default max 2 per gate) have their own counters and never consume loop budget. Cycle and attempt limits are set in the charter and tracked in `project-state.json` (see 8.4–8.5).
+**Loop accounting (mandatory project state).** Track `outer_cycle`, `inner_attempt`, per-cycle progress, Advisor verdicts, and the remaining budget. Cycle 1 is charged at the start of initial planning; subsequent cycles are charged only on `CYCLE_GATE approve/replan`. A failed PLAN_GATE does not refund a charged cycle. Charge an inner attempt when implementation changes are integrated into the cycle workspace, even if evaluation never completes; log no-change interruptions without charging. Review rounds and consultation retries have separate counters; implementing a correction still follows the normal inner-attempt rule. Track all limits in `project-state.json` (§8.4–§8.5).
 
 The Lead's host prompt and durable project records preserve lifecycle state across turns. `pi-subagents` manages Advisor and Worker child runs; it does not advance the research stage on the Lead's behalf or enforce the gate in application code.
 
@@ -571,7 +569,7 @@ The Lead should:
 - Can the proposed evidence support the intended claims?
 - Is the scope efficient relative to the research objective?
 
-**Gate:** The plan and evaluation protocol must be approved before substantial implementation begins.
+**Gate (PLAN_GATE protocol):** The Advisor must approve the plan and evaluation protocol manifest for the authorized cycle before substantial implementation begins. This does not approve the eventual implementation baseline.
 
 Where practical, record the experiment protocol before observing the primary evaluation results. Later exploratory modifications must be distinguishable from preregistered tests.
 
@@ -579,7 +577,7 @@ Where practical, record the experiment protocol before observing the primary eva
 
 **Objective:** Build the software and experimental infrastructure required by the approved methodology.
 
-The Lead decomposes the approved methodology into bounded work packages and delegates eligible implementation packages to the Engineering Worker by default or an approved pool member (§3.5). A package states the exact scope, allowed file paths, relevant specs, acceptance criteria, and verification commands. Assignees edit only granted paths, never project plans, decisions, or review records; only the Engineering Worker may maintain its own explicitly granted skill-plan file under `.pi/plans/`. The Lead owns assignment, acceptance, and project-state records, inspects reported changes and verification output, reruns key checks where cheap, and accepts or rejects the work.
+The Lead decomposes the approved methodology into bounded work packages and routes each under §3.5. Packages within the Engineering Worker's implementation remit go to that role. A package states the exact scope, allowed file paths, relevant specs, acceptance criteria, and verification commands. Assignees edit only granted paths, never project plans, decisions, or review records; only the Engineering Worker may maintain its own explicitly granted skill-plan file under `.pi/plans/`. The Lead owns assignment, acceptance, and project-state records, inspects reported changes and verification output, reruns key checks where cheap, and accepts or rejects the work.
 
 The Lead should decompose the stage into packages that together cover:
 1. Inspection of existing code, libraries, and datasets.
@@ -614,7 +612,9 @@ The Lead should decompose the stage into packages that together cover:
 - Can another researcher reproduce the execution?
 - Are observed test failures understood?
 
-**Gate (PLAN_GATE readiness):** Relevant tests must pass and the Advisor must approve the implementation baseline as ready for the planned evaluation. This approval covers the baseline only: later per-attempt fixes stay covered unless they touch the interfaces, contracts, or validity assumptions the approval rested on, in which case the approval is invalid and a fresh PLAN_GATE review is required before full evaluation (see §8.4).
+**Gate (PLAN_GATE readiness):** Before the first full evaluation of each cycle, submit a separate versioned manifest containing the built baseline, the approved protocol reference, and observed passing results for the required tests. The Advisor must approve that readiness submission. Tests and smoke runs used to establish readiness may run before approval; full evaluation may not.
+
+For a later fix within the approved protocol, the Lead may reuse readiness approval only if it records the exact revision and diff, passing per-attempt checks, and evidence that the interfaces, contracts, and validity assumptions the approval relied on are unchanged. Otherwise, including when coverage is uncertain, require a new readiness verdict before full evaluation. If the fix needs a protocol change, do not use readiness review to approve it: route through the diagnosis-only inner exit and CYCLE_GATE (§8.4).
 
 Implementation approval does not establish that the scientific hypothesis is correct.
 
@@ -673,8 +673,8 @@ The Lead should:
 2. Assess which claims the evidence supports, qualifies, or rejects.
 3. Diagnose the binding limitation of plan v_n (method, baselines, data, metrics, scope, assumptions, budget).
 4. Judge progress for this outer cycle: `advanced | marginal | stalled | regressed`, with evidence (metric deltas, resolved vs. open limitations, Advisor findings).
-5. Propose the cycle decision: `report | replan | hold | suspended`, including plan v_{n+1} changes if re-planning (hypothesis/method/metric/scope deltas and why they should break the limitation). Charter-level objectives and success criteria are out of scope for re-planning: changing them requires explicit human authorization, not a CYCLE_GATE verdict.
-6. Check the termination conditions: objective met → `report` route; unsolvable blocker → HOLD triage, SUSPENDED only if confirmed; outer-cycle budget spent without objective met (or consecutive `stalled`/`regressed` cycles with no credible new lever) → SUSPENDED with honest best-supported conclusion. Precedence and charging follow §5.1/§8.4.
+5. Propose the cycle decision, including plan v_{n+1} changes if proposing `replan` (hypothesis/method/metric/scope deltas and why they should break the limitation). Charter-level objectives and success criteria are out of scope for re-planning: changing them requires explicit human authorization, not a CYCLE_GATE verdict.
+6. Apply the §8.4 transition table to the validated CYCLE_GATE verdict and termination predicates. At the cycle cap or early-stagnation stop, no next cycle may be authorized; use the verdict-specific rules for reporting, current-cycle remediation, HOLD, or SUSPENDED.
 7. Record the decision, rationale, and evidence in `cycle-decision.json` before acting on it.
 
 **Required artifacts**
@@ -683,7 +683,7 @@ The Lead should:
 - Threats-to-validity analysis.
 - Limitation diagnosis for plan v_n.
 - Progress verdict with supporting evidence.
-- `cycle-decision.json` (`report | replan | hold | suspended`, rationale, artifact/evidence refs, next-plan deltas if any).
+- `cycle-decision.json` (decision ID, proposed route and selected §8.4 route when resolved, verdict/manifest refs, rationale, evidence refs, and any next-plan deltas). An unapproved `replan` proposal is not a charge record.
 
 **Advisor review questions**
 
@@ -694,7 +694,7 @@ The Lead should:
 - Is the progress verdict honest given the metric deltas?
 - Has a termination condition fired (objective achieved / unsolvable blocker / stagnation)?
 
-**Gate:** No new outer cycle starts and no REPORTING begins without an Advisor-reviewed cycle decision: the Advisor must concur on (or correct) the interpretation, the limitation diagnosis, the progress verdict, and the route (legal verdict/route combinations in §8.4). `block`/`inconclusive` verdicts, unresolved critical findings, or a spent outer-cycle budget produce HOLD triage, never a new cycle. A `replan` approval authorizes cycle n+1 under the recorded plan deltas; the next cycle's PLAN gate then approves the revised protocol before implementation resumes.
+**Gate:** No new outer cycle starts and no REPORTING begins without a valid `approve` at CYCLE_GATE covering the recorded decision and its evidence, subject to §8.4. The Advisor may request a draft next plan during remediation; record it with the current cycle and return it to CYCLE_GATE for review. Only `approve/replan` authorizes and charges cycle n+1. Then PLAN_GATE reviews that cycle's protocol before substantial implementation resumes.
 
 ### 5.6 Stage 5 — Reporting
 
@@ -1037,10 +1037,10 @@ The project record should track:
 - Active stage, `outer_cycle` / plan version, `inner_attempt`, approved protocol version, task dependencies, acceptance criteria, and attempts.
 - Research questions, hypotheses, decisions, evidence references, and artifact hashes.
 - Advisor consultations and review verdicts, including relevant Pi child run IDs.
-- Worker assignments and their structured results (scope, files changed, observed test evidence, acceptance decision), including relevant Pi child run IDs.
+- Worker and pool assignments and their structured results (scope, dependencies, input versions, changes and verification where applicable, acceptance decision), including relevant Pi child run IDs.
 - Human decisions, unresolved findings, and project completion status.
 
-The Lead maintains this record. Stage approval refers to an immutable/versioned deliverable manifest; distinguish submitted artifacts from approved artifacts. A task is complete only when its acceptance criteria and verification evidence are recorded. An Advisor child run marked `complete` means only that the consultation settled; it does not mean the research is scientifically valid or accepted. A Worker run marked `complete` means only that the assignment settled; acceptance is recorded separately by the Lead (§8.3).
+The Lead maintains this record. Stage approval refers to an immutable/versioned deliverable manifest; distinguish submitted artifacts from approved artifacts. A task is complete only when its acceptance criteria and verification evidence are recorded. An Advisor child run marked `complete` means only that the consultation settled; it does not mean the research is scientifically valid or accepted. A Worker or pool run marked `complete` means only that the assignment settled; acceptance is recorded separately by the Lead (§8.3).
 
 ### 8.2 Advisor consultation and stage review
 
@@ -1048,11 +1048,11 @@ The Lead performs a structured readiness assessment for each meaningful task and
 
 Launch the Advisor directly through Pi Subagents with a focused task and fresh context. For example, the host can call `subagent` with `agent: "research-advisor"`, the consultation/review brief as `task`, and `options.context: "fresh"`. The Advisor receives the brief and its own allowed tools; it does not automatically inherit the host's conversation or system prompt. Supply artifact paths/IDs and ask it to inspect primary evidence. If a call runs in the background, the Lead must collect and inspect the completed result before relying on it.
 
-Use the Section 4.4 decision contract for gate reviews. Where appropriate, request Pi structured output with a matching schema and validate the verdict, gate name, and `review_target` manifest version as §4.4 requires; fail closed on any mismatch. A valid schema or successful child run proves only response shape/run completion—not that the claims are true. Record the consultation result in project decisions/reviews before proceeding. If the Advisor is unavailable (no run, error, or re-request budget exhausted), the gate HOLDs and the Lead escalates to the human — unavailability never counts as approval and never advances a gate.
+Use the Section 4.4 decision contract for gate reviews. Where appropriate, request Pi structured output with a matching schema and validate the verdict, gate name, and `review_target` manifest version as §4.4 requires; fail closed on any mismatch. A valid schema or successful child run proves only response shape/run completion—not that the claims are true. Record the consultation result in project decisions/reviews before proceeding. On a failed or invalid Advisor result, HOLD the dependent gate and apply §4.4's bounded re-request policy. Escalate if recovery is exhausted or the Advisor is confirmed unavailable; neither condition authorizes a substitute or gate advancement.
 
-### 8.3 Worker assignment and acceptance
+### 8.3 Assignment and acceptance
 
-Apply this work-package contract also to pool assignments that modify files or run commands, substituting the approved pool member as the assignee. Worker-only privileges, such as the skill-plan exception and nested architect consultations, do not transfer.
+Use the existing assignment record for Worker and pool work. For pool assignments that modify files or run commands, apply the work-package controls below in addition to the pool result contract. Worker-only privileges, such as the skill-plan exception and nested architect consultations, do not transfer.
 
 No work package may be dispatched until the Lead records READY for it: scope expressible, target paths known, acceptance criteria and verification commands specified. INVESTIGATE/CONSULT/BLOCKED readiness outcomes loop back through reassessment — advisory guidance never substitutes for the gate rubric, and an underspecified package is never dispatched to "let the Worker figure it out."
 
@@ -1063,23 +1063,30 @@ assignment:
   assignment_id: "WORK-014"
   base_revision: "git-sha or workspace snapshot the package applies to"
   scope: "exact deliverable; out-of-scope exclusions"
-  allowed_paths: ["paths the Worker may read", "paths the Worker may modify"]
-  governing_specs: ["spec/artifact-ids the implementation must satisfy"]
+  allowed_paths:
+    read: ["permitted input paths"]
+    modify: ["permitted output paths; empty for execution-only work"]
+  governing_specs: ["versioned specs the implementation must satisfy"]
+  source_versions: ["pinned input IDs and versions or hashes"]
+  dependencies: ["tasks or gates relying on the result"]
   acceptance_criteria: ["checkable criteria"]
+  authorized_operations: ["permitted tools, exact execution commands, and scoped external actions"]
   authorized_verification: ["exact commands the Worker may run"]
   attempt_budget: "max integration attempts for this package"
   deadline: "soft stop (return PARTIAL) + hard cutoff (host-handled, §8.5)"
 ```
 
-Launch the Worker through Pi Subagents with `agent: "engineering-worker"`, the package as `task`, and a fresh context; the Worker inherits project context as configured but never the Lead's live reasoning. It edits only granted paths — never plans, decisions, reviews, or state records — and returns a structured result echoing the `assignment_id`:
+Dispatch the package under §10.4. The assignee edits only granted paths, subject to the role's exclusions, and returns a structured result echoing the `assignment_id`:
 
 - `SUCCESS`: changed artifacts (paths + versions/hashes), every authorized verification command with observed output verbatim (or explicit `not-run` with reason), deviations from the package, remaining follow-ups.
 - `PARTIAL`: what is done and verified, exact state of the rest, what was not attempted.
 - `BLOCKED`: the blocking fact, what was tried, the smallest unblock needed (corrected scope, missing spec, environment fix, or plan-level question).
 
-A missing, malformed, or timed-out result is a host-handled no-result: reconcile the workspace against `base_revision` before retrying or reassigning, and never treat dispatch or a `complete` run status as evidence. The Lead inspects the result, re-runs key verification where cheap, and records `accepted` or `rejected` with rationale before the output enters the evidence base; acceptance is a Lead decision, never a Worker claim. Never silently broaden a Worker's scope to fix a failure: re-scope explicitly, or route plan-level changes through ANALYSIS.
+**Pool result contract (all assignments).** Return `assignment_id`, `status` (`SUCCESS | PARTIAL | BLOCKED`), `source_versions` (source IDs and versions or hashes actually used), `deliverable`, `evidence_refs`, and `gaps` (including any blocker or missing check). Use empty lists for inapplicable evidence or gaps and a null deliverable when blocked with nothing to return. For write or execution packages, also include affected paths with versions/hashes where applicable and observed verification or explicit `not-run` reasons as above.
 
-**Worker-blocker triage.** A `BLOCKED` (or rejected) result routes by cause, not by default:
+**Acceptance and recovery.** Treat a missing, malformed, timed-out, or mismatched-ID result as no usable result for the assignment. Reject stale or unapproved source versions and missing required evidence; compare inputs against the assignment pins and confirm they are still valid for the intended decision. An expressly pinned historical source is not stale just because a newer version exists. `PARTIAL` and `BLOCKED` never complete the assignment; any usable subset must be separately scoped and verified before acceptance. For write or execution packages, reconcile against `base_revision` and isolate unaccepted effects before reusing the affected workspace, retrying, or reassigning. The Lead inspects the result, re-runs key verification where practical, and records `accepted` or `rejected` with rationale before the output enters the evidence base. Neither dispatch, a `complete` run status, nor `SUCCESS` is acceptance. Never silently broaden scope to fix a failure: re-scope explicitly or route plan-level changes through ANALYSIS.
+
+**Work-package blocker triage.** A `BLOCKED` or rejected result routes by cause and dependency (§8.6):
 
 | Cause | Route |
 |---|---|
@@ -1087,7 +1094,7 @@ A missing, malformed, or timed-out result is a host-handled no-result: reconcile
 | Environment/tooling failure | Lead fixes or works around; HOLD the package if human credentials or quota are needed |
 | Technical approach uncertain within the plan | Targeted Advisor consultation, then reassess readiness |
 | Fix would change the plan | ANALYSIS via INNER_EXIT_GATE (diagnosis-only package); no silent redefinition |
-| Repeated BLOCKED against the package budget | HOLD + escalate to human (see §8.4 revise-round limits) |
+| Repeated BLOCKED at the package budget | Stop retries. Drop an optional package with a recorded gap if no requirement depends on it; HOLD the affected gate or project and escalate if required work cannot proceed (§8.6) |
 
 ### 8.4 Loop-aware progression and host-session resumption
 
@@ -1096,7 +1103,8 @@ The Research Lead follows a loop-aware progression, not a linear stage chain. Ou
 ```text
 CREATED -> SCOPING -> PLANNING -> PLAN_GATE (plan v_n approved?)
         -> [ INNER LOOP: IMPLEMENTING ⇄ EVALUATING ]
-             (inner_attempt = 1, 2, ... under plan v_n)
+             (valid PLAN_GATE readiness before full evaluation;
+              inner_attempt = 1, 2, ... under plan v_n)
         -> INNER_EXIT_GATE (evidence package: complete or
              explicitly incomplete-for-diagnosis?)
         -> ANALYZING -> CYCLE_GATE (Advisor-reviewed interpretation,
@@ -1109,9 +1117,10 @@ CREATED -> SCOPING -> PLANNING -> PLAN_GATE (plan v_n approved?)
 
 | Gate | Verdict | Legal routes → next state |
 |---|---|---|
-| PLAN_GATE (plan approval) | `approve` of plan v_n | `continue` → inner loop under plan v_n (covers the implementation baseline per §5.1) |
-| PLAN_GATE (readiness re-approval) | `approve` of the post-change implementation baseline | `continue` → full evaluation (required after any interface/contract/validity-assumption change; §5.1) |
-| PLAN_GATE (either phase) | `revise` | `remediate-plan` → PLANNING, then re-review of the same target (max 2 rounds, then HOLD + escalate) |
+| PLAN_GATE (protocol) | `approve` of plan v_n | `continue` → IMPLEMENTATION under the approved protocol; not authorization for full evaluation |
+| PLAN_GATE (readiness) | `approve` of the built baseline and passing required tests | `continue` → full evaluation; required initially and whenever readiness coverage lapses (§5.3) |
+| PLAN_GATE (protocol) | `revise` | `remediate-plan` → PLANNING in the same authorized cycle, then review the revised protocol manifest (max 2 rounds, then HOLD + escalate) |
+| PLAN_GATE (readiness) | `revise` | `remediate-implementation` → IMPLEMENTATION within the approved protocol, then review the revised readiness manifest (max 2 rounds, then HOLD + escalate); if the repair needs a protocol change, use the diagnosis-only INNER_EXIT_GATE route instead |
 | PLAN_GATE (either phase) | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
 | PLAN_GATE (either phase) | `block` | HOLD triage immediately; SUSPENDED + status report only if confirmed unresolvable |
 | INNER_EXIT_GATE | `approve` (complete package) | `continue` → ANALYSIS |
@@ -1120,23 +1129,25 @@ CREATED -> SCOPING -> PLANNING -> PLAN_GATE (plan v_n approved?)
 | INNER_EXIT_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
 | INNER_EXIT_GATE | `block` | HOLD triage immediately |
 | CYCLE_GATE | `approve` + objective met | `report` → REPORTING |
-| CYCLE_GATE | `approve` + objective unmet, replan justified, budget remains | `replan` → PLAN_GATE for v_n+1 (charges the new cycle at authorization; a failed plan gate does not refund it) |
-| CYCLE_GATE | `revise`, fix stays within plan | `remediate-implementation` → bounded inner-loop rework, then INNER_EXIT_GATE re-review |
-| CYCLE_GATE | `revise`, remediation requires a plan change | `remediate-plan` → PLANNING draft v_n+1 → PLAN_GATE review (bounded rounds); `replan` authorizes only on PLAN_GATE `approve` — a `revise` never routes to `replan` directly |
-| CYCLE_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
-| CYCLE_GATE | `block` | HOLD triage immediately → SUSPENDED + status report only if confirmed unresolvable or the human so decides (resume needs a human decision) |
-| CYCLE_GATE | cap reached or early-stagnation rule fired, objective unmet | SUSPENDED + status report directly — mechanical Lead conversion per §8.6, no HOLD, no human conversion required |
+| CYCLE_GATE | `approve` of a justified `replan` proposal + objective unmet + neither stop predicate fired | `replan` → authorize and charge cycle n+1, then PLANNING → PLAN_GATE protocol review for v_n+1 |
+| CYCLE_GATE | `approve` + objective unmet + neither stop predicate fired + no approved, justified `replan` proposal | HOLD for triage; no new cycle without a justified proposal and matching approval |
+| CYCLE_GATE | `approve` + objective unmet + cap or early-stagnation predicate fired | SUSPENDED + status report directly (§8.6) |
+| CYCLE_GATE | `revise`, fix stays within plan (even at cap or early stagnation) | `remediate-implementation` → bounded inner-loop rework, then INNER_EXIT_GATE → ANALYSIS → CYCLE_GATE re-review; HOLD + escalate if required rework exceeds remaining attempt or revise limits |
+| CYCLE_GATE | `revise`, fix requires a plan change + neither stop predicate fired | `remediate-plan` → draft proposed v_n+1 while still in cycle n, then return to CYCLE_GATE with a new versioned submission (bounded revise rounds); no PLAN_GATE, implementation, or charge for the draft |
+| CYCLE_GATE | `revise`, fix requires a plan change + cap or early-stagnation predicate fired | SUSPENDED + status report preserving the unresolved findings; no draft-to-implementation route and no success claim |
+| CYCLE_GATE | `inconclusive` (even at cap or early stagnation) | `gather-evidence` → bounded evidence + one re-review, then HOLD + escalate if unresolved |
+| CYCLE_GATE | `block` (even at cap or early stagnation) | HOLD triage immediately → SUSPENDED + status report only if confirmed unresolvable or the human so decides |
 | REPORT_GATE | `approve` | `complete` → COMPLETED (final research report: executive summary, read alone, preserves the main limitation, decision-relevant negatives, and the action boundary; Advisor confirms consistency with evidence) |
 | REPORT_GATE | `revise` | `remediate-report` → REPORTING, then re-review (max 2 rounds, then HOLD + escalate) |
 | REPORT_GATE | `inconclusive` | `gather-evidence` → bounded evidence + one re-review, then HOLD if unresolved |
 | REPORT_GATE | `block` | HOLD triage immediately; SUSPENDED + status report only if confirmed unresolvable |
-| Any gate | no-verdict (invalid output, stale manifest, unavailable Advisor) | HOLD + bounded re-request (max 2), then escalate to human |
+| Any gate | no-verdict (invalid output, stale manifest, failed/unavailable Advisor), even at cap or early stagnation | HOLD + bounded re-request (max 2); escalate when recovery is exhausted or the Advisor is confirmed unavailable |
 
-A `replan` route increments `outer_cycle` and resets `inner_attempt`; inner iterations never increment the outer counter. Inner-attempt exhaustion does not stop the project by itself: it forces INNER_EXIT_GATE with the package marked incomplete-for-diagnosis, so ANALYSIS can diagnose the failure instead of being starved of it. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state (including loop counters, HOLD/SUSPENDED status, and the latest `cycle-decision.json`) and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
+After cycle 1 is initialized, only `CYCLE_GATE approve/replan` increments `outer_cycle` and resets `inner_attempt`. Record the authorized cycle decision ID, reviewed manifest, and charge before beginning the new cycle's planning; reconcile these on resume so the same authorization is never charged twice. A failed PLAN_GATE does not refund the charge. Draft revisions do not change the active plan version, start a cycle, or reset counters. Inner-attempt exhaustion does not stop the project by itself: when no gate HOLD prevents progression, submit a diagnosis-only INNER_EXIT_GATE package rather than skipping ANALYSIS or claiming success. The Lead's instructions and project state define this policy; Pi does not automatically prevent the host model from skipping a step. Resumption uses the project state (including loop counters, HOLD/SUSPENDED status, and the latest `cycle-decision.json`) and artifact manifest, then checks the prior Advisor review/run evidence before continuing. If state and evidence disagree, stop and reconcile rather than infer approval.
 
-**Precedence.** At CYCLE_GATE the validated-objective-achievement check runs first: a met objective takes the `report` route even on the final allowed cycle. Only then do the cap and early-stagnation rules apply. On the final cycle with no conclusive verdict after bounded re-review, the gate HOLDs and escalates — the Lead never manufactures a `report` or an extra cycle.
+**Precedence.** Check for an applicable safety, authority, or project-resource HOLD as soon as it surfaces. Otherwise use the validated CYCLE_GATE verdict: `block`, `inconclusive`, and no-verdict keep their respective routes regardless of the predicates. On `approve`, validated objective achievement takes `report` before considering either stop predicate, even at the cap. On `revise`, budgeted repair within the same plan remains allowed. Recheck the predicates on the resulting evidence and update the progress verdict for the same cycle, not a new one. Drafting or re-reviewing a next plan does not bypass either predicate.
 
-**Termination enforcement.** The charter sets `max_outer_cycles` (integer in [3, 5], default 4; human-adjustable within range). The Lead checks the three termination conditions at every CYCLE_GATE and immediately when a blocker surfaces: (1) validated objective achievement → `report` route (checked first, even on the final allowed cycle); (2) unsolvable blocker → HOLD triage, then SUSPENDED with full evidence preservation and a status report if confirmed; (3) stagnation — outer cap reached without the objective met, or the early-stagnation rule (default 2 consecutive `stalled`/`regressed` cycles with no credible new lever, charter-adjustable) → SUSPENDED with the best-supported (possibly inconclusive) conclusion. A SUSPENDED stop produces a status report (what was tried, what failed, preserved evidence); it never produces an approved final research report. No instruction may force a positive conclusion or an extra cycle once termination has fired.
+**Termination enforcement.** The charter sets `max_outer_cycles` (integer in [3, 5], default 4; human-adjustable within range). The two stop predicates are the charged cycle count reaching that cap and the early-stagnation rule (default 2 consecutive `stalled`/`regressed` cycles with no credible new lever, charter-adjustable). Either forbids `replan` at CYCLE_GATE, not execution of the already authorized final cycle. The table determines whether to remediate, HOLD, or convert to SUSPENDED. Counter or objective-checklist output alone cannot supply a verdict or choose a route. A SUSPENDED stop produces a status report (what was tried, what failed, preserved evidence); it never produces an approved final research report.
 
 Pi run/session state helps recover Advisor consultations and inspect their results, but the host Research Lead's conversational state is not a durable workflow engine. A new host session reloads the prompt file, reads the project state, and resumes explicitly. Do not claim automatic transactionality or indefinite recovery for the whole research cycle.
 
@@ -1145,38 +1156,39 @@ Pi run/session state helps recover Advisor consultations and inspect their resul
 Use explicit project-level limits for:
 
 - Outer cycles: `max_outer_cycles` in [3, 5] (default 4), recorded in the charter; inner attempts per cycle (bounded, e.g. set per project).
-- Gate revise rounds (default max 2 per gate) and consultation/evidence retries (default max 2 per gate): tracked separately, never charged against loop budgets.
+- Gate revise rounds (default max 2) and consultation/evidence retries (limits in §4.4 and §8.4): track separately per gate, PLAN_GATE phase, and cycle. A revised manifest does not reset these counters. A review round does not itself charge a loop attempt.
 - Advisor consultations and repeated reviews.
-- Worker packages: per-package attempt budget plus two deadlines — a soft stop (Worker wraps up, runs verification on what is done, returns PARTIAL) and a hard cutoff (host-handled timeout: treated as no-result per §8.3, never dependent on a final Worker response).
+- Worker and pool work packages: per-package attempt budget plus two deadlines — a soft stop (assignee wraps up and returns `PARTIAL` if unfinished) and a hard cutoff (host-handled timeout treated as no-result per §8.3, not dependent on a final child response). Other pool assignments still have explicit time/usage limits.
 - Experiment runs and wall-clock duration.
 - Model token/cost usage and external API expenditure.
 - Sandbox CPU, memory, storage, and network use.
 
 The Research Lead tracks these limits in project state. Pi Subagents can report child-run usage and accept per-run controls, but such controls do not replace external compute/API quotas or guarantee stopping all already-running work at a budget boundary. A hard tool budget can block needed operations, and deadline termination can interrupt a mutation. Prefer narrow tasks, explicit checkpoints, external resource quotas, and project-level accounting.
 
-When a limit is reached, stop advancing and report completed work, unresolved issues, consumed resources, and the next decision. No instruction should force a positive research conclusion when evidence is insufficient.
+When a limit is reached, stop the work it governs. An assignment or gate limit follows §8.3–§8.6; project-wide resource exhaustion HOLDs the project and requires a director decision. Report completed work, unresolved issues, consumed resources, and the next decision at the appropriate scope. No instruction should force a positive research conclusion when evidence is insufficient.
 
 ### 8.6 Director communication contract
 
 The human research director governs; the Lead keeps them governable. The director should be able to tell in one read what changed, why it matters, whether they must act, and what the Lead will do next. Upward communication has a fixed shape, not ad-hoc prose:
 
 - **Standing brief (a dated view, not a second ledger).** `change-and-progress-logs/director-brief.md` is the executive summary: objective status, cycle/progress, spend-vs-budget, blockers, pending decisions. Refresh at every CYCLE_GATE and REPORT_GATE, and also on any new/closed/superseded director decision, material change in run status or research conclusion, or budget hold. Start with as-of timestamp and current stage, then what changed and why it matters, decision needed or none, next checkpoint. Link to state, evidence, and decisions instead of duplicating them. For spend, show source, timestamp, and coverage; distinguish recorded spend, estimates, and unknown external charges — the director's own tools remain the monitoring channel. At kickoff, ask what should interrupt them and what tradeoff to prioritize on borderline evidence; revisit after the first consequential decision or on feedback ("too late", "too much detail"). Preferences change delivery only — never the charter, never escalation. Never promise timed check-ins or monitoring while the host is inactive unless demonstrated.
-- **Tag by who must act, not by lifecycle state.** `DECISION-REQUIRED` when authority or essential information must come from the director — the run parks with no dependent progression until decided. `FYI` when the Lead owns the next action, even for a serious incident (“evaluation paused; reconciling the workspace, will retry within the existing cap — no action needed”). Record the fault either way. A HOLD for evidence, re-review, rework, or bounded re-request is FYI unless it needs the director; a HOLD at an authority boundary (charter change, budget exhaustion, unresolvable blocker, no credible lever) is DECISION-REQUIRED. Escalate on real authority boundaries or exhausted recovery, never merely on the first error.
+- **Tag by who must act, not by lifecycle state.** `DECISION-REQUIRED` when authority or essential information must come from the director — the run parks with no dependent progression until decided. `FYI` when the Lead owns the next action, even for a serious incident (“evaluation paused; reconciling the workspace, will retry within the existing cap — no action needed”). Record the fault either way. A HOLD for evidence, re-review, rework, or bounded re-request is FYI unless it needs the director; a HOLD that needs director authority (e.g. charter change, additional project resources, or a decision on a blocker the Lead cannot resolve) is DECISION-REQUIRED. Escalate on real authority boundaries or exhausted recovery, never merely on the first error.
+- **Scope child failures by dependency.** An optional failed assignment blocks only work that depends on it; independent work can continue if permissions, budgets, and workspace integrity allow. The Lead may retry within the cap, reassign under §3.5, or drop optional work with the gap recorded. Notify promptly in-session for a failed mandatory call, a material incident, or needed director action; otherwise include an optional failure in the next status update. Apply HOLD at a dependent gate if a required call or required evidence is missing; only a valid result from the designated reviewer satisfies a mandatory review. HOLD the whole project only for a project-wide blocker, spent project-wide resource budget, or director action that bars all further work. Do not reuse ambiguous workspaces or outputs to keep progressing.
 - **Decision requests that are easy to answer.** Put the ask in the first sentence: why now, the viable options with consequences, the Lead's recommendation and what would change it, what happens without a reply. Deadlines only for real cutoffs; otherwise “before the next run.” One decision ID shared across chat, indexed record, and brief.
 - **Close the loop.** Distinguish questions and preferences from authorization. Ambiguous reply → one focused question, never guess; clear reply → act, no ceremonial reconfirmation. Read back the effect, not the transcript (“D-014 recorded: narrow to X; Y out of scope; revising plan for PLAN_GATE before implementation”). Close or supersede the open entry and refresh the brief. If posting or recording fails, disclose the gap when possible and reconcile by ID on resume — never infer receipt or approval. A stop order is honored before polishing records; distinguish work told to stop from work confirmed stopped.
 - **Durable and in-session.** Every DECISION-REQUIRED message is recorded in the hub (`decisions/`, indexed in `index.md`) AND surfaced to the human in-session immediately. In-session alone evaporates; records alone go unread — both are mandatory.
 - **Director questions.** Answer from the freshest records and name discrepancies (“the brief predates the timeout; state shows evaluation paused; confirmation not yet recorded”). Say explicitly when the answer is not recorded — never improvise.
 - **Final report audience.** Written for two readers: executive summary for the director (what was found, what it means, what remains open) over a technical body for the record. REPORT_GATE confirms the summary, read alone, preserves the main limitation, decision-relevant negatives, and the boundary on what the director should do with the finding.
 
-**SUSPENDED conversion authority.** Reaching the charter's cycle cap or firing the early-stagnation rule converts to SUSPENDED by the Lead (charter-mandated, mechanical) with a report; a confirmed-unresolvable blocker converts by the Lead after triage with evidence preserved. Cease, narrow, or resume-with-more-budget decisions convert only by the human director — the Lead HOLDs, reports, and awaits. Budget exhaustion alone never converts without a human decision.
+**SUSPENDED conversion authority.** The Lead can convert to SUSPENDED with a status report in the cap/early-stagnation cases specified in §8.4, after triage confirms an unresolvable blocker, or on the director's stop decision. The cap alone does not override a gate verdict. The director alone decides to cease, narrow, or authorize additional resources on a project-resource HOLD; resource exhaustion alone never converts without that decision.
 
 ### 8.8 State-driven awareness (data structures over recall)
 
 The Lead must never rely on its context window to know where the project stands. `project-state.json` is a formal state-machine snapshot, and every awareness question is answered by derivation, not recollection:
 
-- **Schema (source of truth, written only by defined writers).** Identity (`project_id`, `protocol_version`, charter ref); lifecycle (`stage`, `outer_cycle`, `inner_attempt`, `plan_version`); per-gate records (verdict, target manifest, rounds used, timestamp); objective checklist (each success criterion → `untested | partial | met | failed` + evidence refs); blockers and HOLD/SUSPENDED status (reason, since, resume conditions); budgets (consumed/remaining per class); assignments and consultations (ids, status, run ids); decisions (open/closed). Counters and machine fields are written only by the Lead's direct edits and `ledger advance`; concept records live in the hub, never here.
-- **Derivations (computed views, never hand-edited).** `ledger status` renders the one-screen view: stage, cycles used/remaining, open blockers and decisions, and per-gate readiness (verdict valid + target fresh + rounds remaining). `ledger next` lists *candidate* next actions with their eligibility basis — candidates only, the Lead selects. `ledger progress` rolls up the objective checklist and the per-cycle trend (`advanced | marginal | stalled | regressed` sequence). `ledger termination-check` evaluates the §5.1 predicates with achievement-first precedence. Every derivation carries its generation timestamp and source revision; a stale view is labeled stale, never silently trusted.
-- **Invariants checked on every read.** Counters monotonic; no gate recorded passed without a valid verdict on a fresh target; no state advance while HOLD is open except defined triage transitions; every `met` criterion backed by an evidence ref. Violations are flagged for Lead triage — never auto-repaired, never silently passed.
+- **Schema (source of truth, written only by defined writers).** Identity (`project_id`, `protocol_version`, charter ref); lifecycle (`stage`, `outer_cycle`, `inner_attempt`, `plan_version`); per-cycle gate records (gate, phase for PLAN_GATE, verdict, target manifest, rounds used, timestamp; separate protocol and readiness records); objective checklist (each success criterion → `untested | partial | met | failed` + evidence refs); blockers and HOLD/SUSPENDED status (reason, since, resume conditions); budgets (consumed/remaining per class); assignments and consultations (IDs, status, run IDs; for assignments, input versions, dependent tasks/gates, and recovery or acceptance); decisions (open/closed). Counters and machine fields are written only by the Lead's direct edits and `ledger advance`; concept records live in the hub, never here.
+- **Derivations (computed views, never hand-edited).** `ledger status` renders the one-screen view: stage, cycles used/remaining, open blockers and decisions, and per-gate readiness (verdict valid + target fresh + rounds remaining). `ledger next` lists *candidate* next actions with their eligibility basis — candidates only, the Lead selects. `ledger progress` rolls up the objective checklist and the per-cycle trend (`advanced | marginal | stalled | regressed` sequence). `ledger termination-check` supplies predicate information; the Lead applies verdict and phase precedence under §8.4. A route label from a tool is a candidate, not authorization. Every derivation carries its generation timestamp and source revision; a stale view is labeled stale, never silently trusted.
+- **Invariants checked on every read.** Counters monotonic; no gate recorded passed without a valid verdict on a fresh target; no dependent progression while a gate HOLD is open except defined triage transitions, and no project progression during a project HOLD; every `met` criterion backed by an evidence ref. Violations are flagged for Lead triage — never auto-repaired, never silently passed.
 - **Consumption contract.** At session start, resume, and before every gate, the Lead runs `ledger status` (and `progress`/`freshness-flags` where relevant) instead of reconstructing state from memory or chat history. Files stay the source of truth; derivations are cached views. What stays judgment: whether evidence supports a verdict, route selection among legal options, diagnosis, acceptance, and everything addressed to the director.
 
 ### 8.7 Knowledge-service delegation
@@ -1323,7 +1335,7 @@ The Lead prompt is not a child agent and should not be launched with `subagent`.
 4. The `agentExcludeDirs` path base and its effect on discovery vs. direct prompt loading.
 5. Structured-output support and schema-constraint behavior for gate verdicts (§4.4, §11.2–11.3).
 6. The effective provider/model ID and override source for all seven fixed children, resolved from their actual call sites at preflight. An unresolved pin or unapproved fallback does not count as a successful launch.
-7. For each selected pool member, verify approval, discovery, resolved model, and effective tools against the requested capabilities before launch, including what is reachable through `codemode` if enabled. Do not expose delegation to pool members. Smoke-test on first use and after relevant configuration or runtime changes; do not add the whole pool to the seven-child kickoff smoke test.
+7. For each selected pool member, compare the actual launch resolution with the operator's approval: canonical name and resolved definition source/version (or digest), effective provider/model and override, and effective capabilities, including inherited tools and tools/model endpoints reachable through `codemode` or another wrapper. Record the verified resolution with the assignment; per-assignment tools and access may only narrow it. Check this resolution before every launch or retry, including smoke tests. Refuse a changed, ambiguous, or unverifiable profile and require reapproval for changes. Never launch a pool member if delegation is reachable or the verified configuration cannot be pinned or rechecked at dispatch. Smoke-test on first use and after relevant configuration or runtime changes using disposable inputs and workspace; do not add the whole pool to the kickoff smoke test.
 
 The Research Lead's tools come from the main Pi host configuration. Ensure the `pi-subagents` extension and its `subagent` tool are available in that session. The Advisor's frontmatter should set an explicit read-only tool allowlist (for example `read`, `grep`, `find`, `ls`, plus selected read-only evidence providers), project-context inheritance as needed, a separately configurable model, and no nested subagent delegation. The Worker's frontmatter should set a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, scoped command execution such as `bash`/`codemode`, AND explicit `subagent` — empirically, the `allowNestedSubagents` grant alone does not surface the spawn tool in the child session; the explicit entry is required, and the depth cap remains the enforcement guard), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, a bounded nested-delegation grant (`allowNestedSubagents: true`, `maxSubagentDepth: 2`), and a separately configurable model. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
 
@@ -1335,7 +1347,7 @@ The Lead owns all stage sequencing, task execution, remediation, project-state u
 
 ### 10.4 Host-led implementation delegation
 
-The Lead calls `subagent` with the selected assignee (`engineering-worker` by default) and a focused `task` containing the work package: exact scope, allowed file paths, governing specs, acceptance criteria, verification commands, and the attempt/deadline budget. Use a fresh child context so the assignee works from the package rather than inheriting the Lead's exploratory reasoning. Prefer one assignee per work package. Default to one active writer per workspace across the Worker and pool; concurrent write packages require isolated workspaces (one worktree per package) plus Lead-controlled integration in recorded order against each package's `base_revision`. Before every dispatch, persist the intent (assignment ID, workspace ref) in project state; attach the child run ID when the runtime returns it — never assume it is known before dispatch. On host resume, reconcile live runs and unaccepted changes against those refs before retrying, reassigning, or advancing. The Lead must collect each result, inspect files changed and observed verification output (re-running key checks where cheap), and record acceptance before the code enters the evidence base. Never treat dispatch, a `complete` run status, or the assignee's own success claim as acceptance.
+The Lead checks the work package against the seven fixed-role scopes before selecting an assignee (§3.5). If a fixed role covers it, assign it to that role; consider the general pool only if no fixed role covers it. After routing, the Lead calls `subagent` with the assignee and a focused `task` containing the work package: exact scope, allowed file paths, governing specs, acceptance criteria, verification commands, and the attempt/deadline budget. Use a fresh child context so the assignee works from the package rather than inheriting the Lead's exploratory reasoning. Prefer one assignee per work package. Default to one active writer per workspace across the Worker and pool; concurrent write packages require isolated workspaces (one worktree per package) plus Lead-controlled integration in recorded order against each package's `base_revision`. Before every dispatch, persist the intent (assignment ID, workspace ref) in project state; attach the child run ID when the runtime returns it — never assume it is known before dispatch. On host resume, reconcile live runs and unaccepted changes against those refs before retrying, reassigning, or advancing. The Lead must collect each result, inspect files changed and observed verification output (re-running key checks where cheap), and record acceptance before the code enters the evidence base. Never treat dispatch, a `complete` run status, or the assignee's own success claim as acceptance.
 
 Do not add `.pi/workflows/research-lifecycle.js` as a required component in version 1. A reusable `pi-subagents` scripted workflow may be considered later for a well-defined mechanical sequence, but it is not the host's role and must not replace the Research Lead as lifecycle owner.
 
@@ -1385,7 +1397,7 @@ The Lead must be capable enough to implement and evaluate real experiments. A ch
 - No access to project plans, decisions, reviews, or state records — except the package's own plan file under `.pi/plans/` when the package explicitly grants it; bounded nested delegation only (`allowNestedSubagents`, depth ≤ 2, skill-directed, Worker→architects only, never to the Lead role, never Worker→Advisor) — no unrestricted fan-out.
 - Returns the Section 8.3 structured result for every assignment, including blocked or partial work; reports blockers in the returned result (no heartbeat channel in version 1), never to the human directly.
 
-Apply the same work-package access controls to write- or execution-capable pool members as to the Worker. For `codemode`, verify that reachable tools and model endpoints respect the assignment's permissions and budget; enforce path, command, and external-action limits where the underlying call runs, not in the script's instructions. Apply sandboxing, filesystem/network boundaries, secrets management, resource quotas, restricted external side effects, prompt-injection defenses, and human approval for irreversible or externally visible actions at the host/tool layer. Pi tool allowlists are not an operating-system sandbox. Retrieved pages, repositories, datasets, prompts, and dependencies are untrusted data—not instructions that may override either role contract.
+Pool access is the intersection of the approved profile and the assignment, including read inputs, paths, commands, budget, and external actions. Apply the Worker work-package controls to pool writes and execution without granting Worker-only exceptions. For `codemode`, verify that reachable tools and model endpoints respect the same limits; enforce them on the underlying calls, not in the script's instructions. If confinement cannot be verified, do not use the capability beyond the disposable exercises in §13. Apply sandboxing, filesystem/network boundaries, secrets management, resource quotas, restricted external side effects, prompt-injection defenses, and human approval for irreversible or externally visible actions at the host/tool layer. Pi tool allowlists are not an operating-system sandbox. Retrieved pages, repositories, datasets, prompts, and dependencies are untrusted data—not instructions that may override either role contract.
 
 ### 10.7 Deterministic orchestration toolset (mechanics as code)
 
@@ -1393,15 +1405,15 @@ Judgment stays with the Lead; arithmetic, schema, and comparison move into a sma
 
 | Tool | Inputs | Outputs | Guards |
 |---|---|---|---|
-| `validate-verdict` | verdict JSON, invoked gate id, submitted manifest id/version | pass/fail + enumerated reasons (schema, gate mismatch, stale target) | every gate: PLAN / INNER_EXIT / CYCLE / REPORT (§4.4) |
-| `verdict-still-covers` | manifest + file hashes at verdict time, current manifest + hashes | valid/void + drift list (voids approval on interface/contract/validity drift) | gate reliance, especially PLAN readiness re-approval and REPORT_GATE |
+| `validate-verdict` | verdict JSON, invoked gate and phase if applicable, submitted manifest id/version | pass/fail + enumerated reasons (schema, wrong gate or phase target, stale target) | every gate: PLAN / INNER_EXIT / CYCLE / REPORT (§4.4) |
+| `verdict-still-covers` | reviewed manifest and hashes, current manifest and hashes | match/drift + changed references; the Lead evaluates any drift under §5.3 before relying on readiness coverage | gate reliance, especially PLAN_GATE readiness and REPORT_GATE |
 | `okf-gate-precheck` | hub bundle root, writer result envelope | clean/dirty + findings (`validate_okf.py`, `validate_result.py`, created-list/index-rows-vs-disk reconcile) | CYCLE_GATE, REPORT_GATE, any writer-dependent progression (§8.7) |
-| `ledger` | `get`: state + decisions; `advance`: charged event; `termination-check`: state + charter; `status`/`next`/`progress`: derived awareness views per §8.8 | machine-readable counters, charge receipts, which termination predicate fired (achievement-first precedence baked in), one-screen status, eligible candidate next actions, objective rollup + cycle trend | CYCLE_GATE charging and termination enforcement (§5.1, §8.4); session start/resume and pre-gate awareness (§8.8) |
+| `ledger` | `get`: state + decisions; `advance`: charged event; `termination-check`: state + charter; `status`/`next`/`progress`: derived awareness views per §8.8 | machine-readable counters, charge receipts, termination predicate information (not a routing decision), one-screen status, eligible candidate next actions, objective rollup + cycle trend | CYCLE_GATE charging and termination enforcement (§5.1, §8.4); session start/resume and pre-gate awareness (§8.8) |
 | `preflight` | repo root | recorded roster (7 canonical names), effective model + override source per role, depth config, validator availability | kickoff, Milestone 1 exit (§10.2 item 6, §13) |
 | `freshness-flags` | hub root, `project-state.json` | flag list (brief as-of vs state, `stale_after` evaluation, reader provenance vs live state) | CYCLE_GATE brief refresh, director Q&A (§8.6–8.7) |
 | `smoke-roster` | repo root | per-role launch success + resolved model for the seven fixed children | kickoff, Milestone 1 exit, post-upgrade re-verification |
 
-Shared wiring rules: tools live in one versioned location shared by all projects (`tools/research-ops/`, stdlib-only, no installs) and take the project root as an argument; only `ledger advance` writes state, and only when Lead-invoked (serialized with hub mutations per §8.7); every invocation and result is recorded as evidence with the tool version; a tool failure, missing tool, or version mismatch holds the dependent gate exactly like a failed validator (§12.4). Implemented: `ledger.py` with `get` (via `show`), `advance`, `termination-check`, `status`, `next`, `progress` + `project-state.schema.json` + 16 self-tests green; remaining §10.7 tools are spec'd, not yet built.
+Shared wiring rules: tools live in one versioned location shared by all projects (`tools/research-ops/`, stdlib-only, no installs) and take the project root as an argument; only `ledger advance` writes state, and only when Lead-invoked (serialized with hub mutations per §8.7); every invocation and result is recorded as evidence with the tool version; a tool failure, missing tool, or version mismatch holds the dependent gate exactly like a failed validator (§12.4). The prototype `ledger.py` has `get` (via `show`), `advance`, `termination-check`, `status`, `next`, and `progress` with `project-state.schema.json` and self-tests. Align the prototype state and Lead prompt to the phase, charge, and dependency rules above before deployment; existing route hints and tests do not establish conformance to these rules. The other §10.7 tools are specified, not yet built.
 
 ---
 
@@ -1419,11 +1431,11 @@ Shared wiring rules: tools live in one versioned location shared by all projects
 
 - Own research planning, implementation, evaluation, analysis, and reporting.
 - Maintain project state, artifacts, evidence, budgets, and decisions in the research workspace — hub concept records, indexes, and logs via `okf-writer`; `project-state.json` counters and git checkpoints directly.
-- Assess readiness and look for independently verifiable pieces before doing substantial work. Delegate every meaningful, self-contained `READY` task with concrete scope and a suitable authorized assignee within budget; record the reason for retaining a meaningful task (§3.5).
+- Assess readiness and look for independently verifiable pieces before doing substantial work. Delegate every meaningful, self-contained `READY` task with concrete scope and a suitable authorized assignee within budget. Route in-scope work to its fixed role; consider the general pool only if no fixed role covers the task. Record why a task is outside the fixed roster before pool dispatch, or why meaningful work was retained (§3.5).
 - Use `subagent` for Lead → `research-advisor` (consultation, gate review), `engineering-worker` (bounded implementation), the three named architects (domain advice), `okf-reader` / `okf-writer` (hub work), and approved general pool members (bounded work, with writes, execution, and `codemode` limited to granted capabilities). The Worker may invoke only the named architects, nested inside a package. Pool members cannot delegate, and no discovered-but-unapproved agent is eligible.
 - OKF handoff policy: task the services with mechanics, never judgment — state exact intended record changes and scope; reader RESULT JSON is evidence with a searched scope, never absence-proof; writer `committed` gets a spot-check before gate reliance and `needs_review`/`rejected` gets triage (supply, narrow, or record the conflict), never silent override; writer output is records, never rulings.
 - Verify Worker and general pool results against acceptance criteria and re-run key checks where practical; accept or reject the work explicitly.
-- Submit completed artifacts for mandatory Advisor review at every stage gate.
+- Submit completed artifacts for mandatory Advisor review. Require separate PLAN_GATE verdicts for the protocol and the tested baseline; use §8.4 for every gate route and never charge a cycle on a draft replan.
 - Integrate advice, verify findings independently, and document unresolved disagreements.
 - Ask the human directly when authority, unavailable information, or a material scope decision requires it.
 
@@ -1609,6 +1621,13 @@ Test the system against deliberate failures.
 | Lead selects an invalid methodology | Advisor rejects or requests revision |
 | Advisor approves incorrect code | Automated tests prevent premature success |
 | Worker returns unrun checks as passed | Lead verifies evidence and re-runs key checks; rejects unverified claims |
+| Ready task fits a fixed role, but that agent is unavailable | No pool substitution; use the applicable fixed-role recovery path |
+| Pool profile is unapproved, changed under the same name, ambiguous, or unverifiable | No launch, including no smoke test, until the actual resolution is verified against operator approval |
+| Pool returns a wrong assignment ID, stale inputs, missing required evidence, or `PARTIAL` | Do not accept the assignment; record the fault or gap, reconcile any effects, and recover within the existing budget |
+| Optional pool assignment times out; mandatory Advisor review separately fails | Block only the optional assignment's dependents; independent work can continue. The mandatory gate HOLDs, and pool output cannot substitute |
+| Protocol approved but readiness missing, or baseline coverage lapses | Tests/smoke runs may establish readiness; full evaluation waits for the applicable fresh readiness verdict |
+| CYCLE_GATE requests a plan-changing revision | Draft and return to CYCLE_GATE when no stop predicate fired; no charge or PLAN_GATE launch for the draft. Authorize and charge exactly once on a valid `approve/replan`, including after resume |
+| At cap or early stagnation, CYCLE_GATE returns `approve`, `revise`, `block`, `inconclusive`, or no-verdict | Approved achievement reports; approved unmet and a `revise` requiring a new cycle suspend with status report; an in-plan `revise` permits only budgeted repair. `block` or no-verdict holds; inconclusive gets bounded re-review and then HOLD if unresolved. None can authorize a new cycle |
 | Advisor receives insufficient context | Requests primary evidence |
 | Advisor gives contradictory advice | Lead records conflict and seeks empirical resolution |
 | Experiment returns negative result | Preserve and report honestly |
@@ -1621,7 +1640,7 @@ Test the system against deliberate failures.
 | Experiment results are inconsistent | Investigate variability and validity |
 | Lead host session or Pi process is interrupted | Start a new host session with the Research Lead prompt, reconcile project state/artifacts, and resume explicitly; recover an Advisor child run only when supported by `pi-subagents`, otherwise relaunch from durable evidence |
 | Worker run interrupted after changing files but before acceptance | Treat as no-result: reconcile the workspace against the assignment `base_revision`, quarantine unaccepted changes, re-verify from the recorded revision, then retry or reassign — never accept orphaned mutations |
-| Research budget is exhausted | HOLD, report consumption, and ask the human; only the director decides resume (extended budget), narrow, or cease (→ SUSPENDED + status report) |
+| Project-wide resource budget is exhausted | HOLD, report consumption, and ask the human; only the director decides resume (extended budget), narrow, or cease (→ SUSPENDED + status report) |
 | Retrieved document contains malicious instructions | Treat as untrusted content |
 | Evaluation data is contaminated | Flag the validity threat and stop affected claims |
 
@@ -1640,16 +1659,16 @@ Implement:
 - `.pi/agents/okf-reader/agent.md` and `.pi/agents/okf-writer/agent.md` as the knowledge-service definitions (Lead-invoked only; §8.7 delegation contract).
 - Project state/artifact layout, the Advisor consultation/review contract, and the Worker assignment/acceptance contract (Section 8.3).
 - Agent-discovery exclusion for the Lead prompt directory if its format would otherwise make it a child agent.
-- The §3.5 delegation rule and a Lead-only handoff to at least one operator-approved pool member through existing `pi-subagents` discovery. Exercise authorized `codemode` use and a scoped write in a disposable workspace.
+- The §3.5 delegation rule and a Lead-only handoff to at least one operator-approved pool member through existing `pi-subagents` discovery. In a disposable workspace, exercise authorized `codemode` use and a scoped write for an out-of-scope deliverable (e.g. extracting supplied primary-paper findings into a specified evidence file, not implementing research code or maintaining the OKF hub). Exercise the pool launch, acceptance, and failure cases in §12.4.
 
-**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor returns read-only inspection evidence; the Worker returns structured evidence for granted-path work; the Lead independently routes and consumes consultations and work packages. All seven fixed definitions (advisor, worker, three architects, reader, writer) resolve by canonical name from their authorized call sites, with effective provider/model ID and override source recorded per role — an unresolved pin or unapproved fallback does not count as a successful launch, and all three Worker→architect routes verify. In a bounded exercise, the Lead delegates a concrete, eligible task to an approved pool member and verifies the result; a discovered but unapproved candidate is not used. This exit is behavioral evidence only: nothing in Milestone 1 proves that the Worker or a pool member cannot touch out-of-scope paths — prompt rules are not enforcement. Enforceable confinement (denied out-of-scope read/write/execution/delegation tests, named enforcement point) is verified in Milestone 3 before any write-capable deployment beyond exercises.
+**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor returns read-only inspection evidence; the Worker returns structured evidence for granted-path work; the Lead independently routes and consumes consultations and work packages. All seven fixed definitions (advisor, worker, three architects, reader, writer) resolve by canonical name from their authorized call sites, with effective provider/model ID and override source recorded per role — an unresolved pin or unapproved fallback does not count as a successful launch, and all three Worker→architect routes verify. In a bounded exercise, the Lead routes a task covered by the Engineering Worker to that role even when a pool member could do it, and delegates a concrete task outside all seven fixed roles' scopes to an approved pool member and verifies the result. The Lead refuses unapproved or changed pool profiles even for smoke tests. This exit is behavioral evidence only: prompt rules are not enforcement. Verify confinement at the named host/tool enforcement point in Milestone 3 before deploying Worker or pool capabilities beyond disposable exercises.
 
 ### Milestone 2 — Host-led lifecycle discipline
 
 Implement and test through bounded research exercises:
 
 - The dynamic dual-loop sequence (inner IMPLEMENTATION ⇄ EVALUATION, outer plan-cycle → ANALYSIS → re-plan), loop counters, termination conditions, and mandatory Advisor review instructions in the Lead prompt.
-- Readiness checks, consultation triggers, fresh-context review packets, and bounded revise/HOLD decisions.
+- Readiness checks, separate PLAN_GATE protocol and readiness records, consultation triggers, fresh-context review packets, and bounded revise/HOLD decisions. Exercise the phase separation, CYCLE_GATE charging/stop precedence, and dependency-scoped recovery cases in §12.4.
 - Project-state updates, immutable artifact manifests, and resume instructions for a new host session.
 - Human clarification/escalation behavior and explicit disclosure that gates are host-agent policy, not application-enforced workflow.
 
@@ -1662,7 +1681,7 @@ Implement:
 - Trusted literature/search tools and source provenance.
 - Repository and project artifact access.
 - Isolated code execution, automated testing, and experiment runner.
-- Worker and pool confinement verification: probe denied out-of-scope reads, writes, execution, and delegation at the named host/tool-layer enforcement point, both directly and through `codemode` where enabled. Verify read access separately from modify access. Delegation probes include Worker→Advisor, any non-Lead invocation of the knowledge services or pool, and delegation from a pool member. No write-capable Worker or pool deployment beyond exercises until these probes pass.
+- Worker and pool confinement verification: probe denied out-of-scope reads, writes, execution, delegation, and external actions at the named host/tool-layer enforcement point, both directly and through `codemode` where enabled. Verify read scope separately from modify scope, including for a pool profile without write access. Delegation probes include Worker→Advisor, any non-Lead invocation of the knowledge services or pool, and delegation from a pool member. Do not deploy a Worker or pool capability beyond disposable exercises until its applicable confinement probes pass.
 - Immutable experiment configurations/results and artifact manifests.
 - Explicitly scoped extensions/MCP tools for the host, Advisor, and Worker.
 
@@ -1726,7 +1745,7 @@ The Lead revises the plan accordingly.
 
 The Lead decomposes the approved methodology: protocol-sensitive pieces stay with the Lead; bounded construction goes to the Engineering Worker as an explicit package — e.g. WORK-001 (prompt-variant generator + semantic-equivalence checks: allowed paths, governing spec refs, acceptance tests, verification commands). The Worker returns files changed plus observed test output; the Lead verifies, accepts explicitly, and only then submits the baseline for PLAN_GATE readiness.
 
-The Advisor reviews the design and inspects evidence that the implementation matches the experiment protocol.
+The Advisor inspects the built baseline and observed test results against the approved protocol. Full evaluation starts only after the separate PLAN_GATE readiness verdict approves that baseline.
 
 ### Stage 3 — Evaluation
 
@@ -1745,7 +1764,7 @@ Suppose the first evaluation shows weak exact-match grading confounded by answer
 
 Suppose the stabilized results suggest that semantically equivalent prompt variations have little effect on easy extraction tasks but substantial effects on unfamiliar reasoning tasks.
 
-**Stage 4 — Analysis.** The Lead compares observations against the competing causal hypotheses and diagnoses the binding limitation of plan v_1 (e.g. sampling variability and reasoning-token budget confound the causal claim). The Advisor challenges the interpretation — asking whether variation in answer formatting, stochastic sampling, or computational budget explains the observations — and reviews the progress verdict and cycle decision. If the diagnosis calls for a design change the current plan cannot absorb (e.g. new controls or task families), the approved `replan` starts outer cycle 2 under plan v_2; otherwise the Lead iterates the inner loop again if inner-attempt budget remains. The loop repeats until the objective is met, an unsolvable blocker appears, or the outer-cycle budget (3–5 cycles) is spent. Any replan that would change the success criteria or research objective itself requires human authorization first (§9.5) — the Advisor cannot approve charter changes.
+**Stage 4 — Analysis.** The Lead compares observations against the competing causal hypotheses and diagnoses the binding limitation of plan v_1 (e.g. sampling variability and reasoning-token budget confound the causal claim). The Advisor challenges the interpretation — asking whether variation in answer formatting, stochastic sampling, or computational budget explains the observations — and reviews the progress verdict and cycle decision. If the diagnosis calls for a design change the current plan cannot absorb (e.g. new controls or task families), the approved `replan` starts outer cycle 2 under plan v_2; if the gate instead requests an in-plan correction, the Lead returns to the inner loop only within the remaining attempt and revise budgets. The loop repeats until the objective is met, an unsolvable blocker appears, or the outer-cycle budget (3–5 cycles) is spent. Any replan that would change the success criteria or research objective itself requires human authorization first (§9.5) — the Advisor cannot approve charter changes.
 
 ### Stage 5 — Reporting
 
@@ -1770,7 +1789,7 @@ The initial system should adopt the following decisions.
 | Decision | Recommendation |
 |---|---|
 | Fixed roles | One Lead host and seven named children: Advisor, Worker, three specialist architects, and two OKF services |
-| General subagent pool | Operator-approved, Lead-only Pi children for bounded tasks; writes, execution, and `codemode` require explicit grants; no standing authority or nested delegation (§3.5) |
+| General subagent pool | Operator-approved, Lead-only Pi children for bounded tasks outside all seven fixed roles' scopes; writes, execution, and `codemode` require explicit grants; no standing authority or nested delegation (§3.5) |
 | Research Lead | Main Pi session loaded with `.pi/agents/research-lead/agent.md` via `--append-system-prompt` |
 | Research Advisor | Read-only Pi child agent at `.pi/agents/research-advisor/agent.md` |
 | Engineering Worker | Bounded-writer Pi child agent at `.pi/agents/engineering-worker/agent.md` (nested delegation bounded: skill-directed, depth ≤ 2) |
