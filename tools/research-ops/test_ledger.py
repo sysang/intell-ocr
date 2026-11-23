@@ -62,6 +62,13 @@ class LedgerCase(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(out["valid"])
 
+    def test_invalid_legacy_assignment_fails_closed(self):
+        state = base_state(assignments=[{"assignment_id": "WORK-014", "status": "invalid"}])
+        code, out = self.run_ledger(state, "validate", "STATE")
+        self.assertEqual(code, 1)
+        self.assertIn("invalid legacy assignment at index 0", out["violations"])
+        self.assertEqual(self.run_ledger(state, "status", "STATE")[0], 1)
+
     def test_status_view(self):
         code, out = self.run_ledger(base_state(), "status", "STATE")
         self.assertEqual(code, 0)

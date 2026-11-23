@@ -80,6 +80,25 @@ def check_invariants(state):
             problems.append("gate %s exceeded max revise rounds without HOLD" % name)
         if g.get("verdict") == "approve" and not g.get("target_manifest"):
             problems.append("gate %s approved with empty target_manifest" % name)
+    legacy = state["assignments"]
+    if not isinstance(legacy, list):
+        problems.append("legacy assignments must be a list")
+    else:
+        required = {"assignment_id", "base_revision", "workspace_ref", "status"}
+        optional = {"run_id", "result", "acceptance"}
+        ids = set()
+        for index, a in enumerate(legacy):
+            if (not isinstance(a, dict) or not required <= a.keys() or a.keys() - required - optional or
+                    any(not isinstance(a[key], str) or not a[key].strip() for key in required) or
+                    a["status"] not in ("dispatched", "returned", "accepted", "rejected") or
+                    a.get("result", "none") not in ("success", "partial", "blocked", "none") or
+                    a.get("acceptance", "pending") not in ("accepted", "rejected", "pending") or
+                    (a.get("run_id") is not None and not isinstance(a["run_id"], str))):
+                problems.append("invalid legacy assignment at index %d" % index)
+            elif a["assignment_id"] in ids:
+                problems.append("duplicate legacy assignment ID: %s" % a["assignment_id"])
+            else:
+                ids.add(a["assignment_id"])
     for o in state["objectives"]:
         if o.get("status") not in ("untested", "partial", "met", "failed"):
             problems.append("objective %s has unknown status" % o.get("id"))

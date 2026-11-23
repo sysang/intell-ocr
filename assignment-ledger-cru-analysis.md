@@ -1,10 +1,10 @@
 # Research Lead assignment ledger: Create–Retrieve–Update analysis
 
-**Status:** Historical design review of blueprint v1.2. [Blueprint v1.3 §8.9](blueprint-v1.md#89-assignment-ledger-and-delegation-lifecycle) is now the authoritative design. This note preserves the original analysis; it does not describe an implemented interface.
+**Status:** Historical design review of blueprint v1.2. The standalone task ledger proposed here is superseded by [blueprint v1.4 §8.9](blueprint-v1.md#89-assignment-ledger-and-delegation-lifecycle): Beads manages operational tasks; the project ledger preserves exact execution and acceptance evidence. This note records the original rationale, not a current implementation plan.
 
 ## Finding in v1.2
 
-Blueprint v1.2 described a Lead-owned assignment lifecycle but did not specify a full Create–Retrieve–Update (CRU) ledger over typed resources. It lacked exact lookup by resource ID, combined full-text search and structured filters, and relational resource categories for document sections. [§8.9](blueprint-v1.md#89-assignment-ledger-and-delegation-lifecycle) now specifies those behaviors. See the [tool README](tools/research-ops/README.md) for current implementation and verification status.
+Blueprint v1.2 described a Lead-owned assignment lifecycle but did not specify a full Create–Retrieve–Update (CRU) ledger over typed resources. It lacked exact lookup by resource ID, combined full-text search and structured filters, and relational resource categories for document sections. The v1.4 design addresses task lookup and combined queries through Beads, and keeps historical execution records in the project ledger. It does not require a second task index or the custom category model below. See the [tool README](tools/research-ops/README.md) for verification status.
 
 The ledger must answer three separate questions: **What was authorized? What actually ran and came back? What may the research rely on?** An assignment revision answers the first, run attempts and results answer the second, and the Lead's acceptance decision answers the third. A completed Pi run is not accepted work; accepted work is not an Advisor gate approval.
 
@@ -43,7 +43,7 @@ Each resource has a stable ID and a `category_id` foreign key. A category has a 
 - **RETRIEVE by query:** Support full-text search alone, structured filters alone, and both together. Search authorized titles, briefs, summaries, blockers, and rationale. Filter by category, cycle, assignee, readiness, acceptance, dates, and related run state. Keep run state separate from acceptance state. Use stable sorting and pagination; return resource IDs, categories, matching snippets where applicable, and links. Reference large or sensitive artifacts rather than indexing them by default.
 - **UPDATE:** Use named, guarded updates such as `mark-ready`, `attach-run`, `mark-launch-unknown`, and `record-integration`. Record who changed what, when, and why. Issued briefs and recorded decisions are not rewritten in place; supersede them with new records. Replaying a completion or decision write must not duplicate it. Cancelled, dropped, and superseded records remain retrievable even if omitted from active views. Do not expose DELETE.
 
-Original illustrative interface (see the tool README for actual arguments):
+Superseded interface sketch (do not implement these task commands in `ledger.py`):
 
 ```text
 ledger get WORK-014 --include revisions,attempts,results,decisions
@@ -52,7 +52,7 @@ ledger query --category assignments --text '"OCR fixture"' \
   --filter latest_attempt.run_state=launch_unknown
 ```
 
-## Recovery example and enhancement order
+## Original recovery example and enhancement order
 
 The Lead assigns an OCR test fixture to `engineering-worker`, records revision `R1` and attempt `A1`, then calls `subagent`. If the host stops after Pi launches but before the run ID is recorded, the next Lead session retrieves `A1` and `R1`, records an unknown launch outcome until reconciled, and checks the workspace against the recorded base. A missing run ID is not proof that nothing started. Do not start another writer in the same workspace until the first attempt and its effects are reconciled. A safe retry creates `A2`; a late `A1` result remains linked to `A1` and cannot close `A2`. Once the Lead verifies and accepts the fixture, dependents wait for the workspace integration checkpoint. The Advisor readiness review is still required before full evaluation.
 
