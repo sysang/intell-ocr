@@ -1,11 +1,11 @@
 # System Design Guideline
 ## Autonomous Research Team for Applied AI: LLM & Agentic Systems
 
-**Version:** 1.1 — Proposed Pi Subagents Architecture
+**Version:** 1.2 — Proposed Pi Subagents Architecture
 
 > Filename note: promoted from draft `blueprint-draft-v1_0.md`; this file (`blueprint-v1.md`) is now the authoritative working file.
 
-**Primary objective:** Build an autonomous, evidence-driven research system implemented by a Research Lead host prompt, a Research Advisor Pi subagent, and an Engineering Worker Pi subagent, plus three specialist architect consultants and two OKF knowledge services (`okf-reader`, `okf-writer`) — eight named roles, one host, seven discoverable subagent definitions — using Pi's `pi-subagents` mechanism to convert a human-defined research direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report.
+**Primary objective:** Build an autonomous, evidence-driven research system that turns a human-defined direction into a research roadmap, implemented experiments, evaluated findings, and a rigorous final report. The Research Lead host uses `pi-subagents` to call seven fixed children (the Research Advisor, Engineering Worker, three specialist architects, and two OKF knowledge services) and an on-demand pool of general subagents for bounded tasks.
 
 ---
 
@@ -13,7 +13,7 @@
 
 ### 1.1 Mission
 
-The research system operates as a small autonomous research team with three core roles plus named advisors and knowledge services (closed set per P1 — §2.4 roster table):
+The research system operates as a small autonomous team with three core roles, named advisors and knowledge services, and an on-demand pool with no governance role (P1, §2.4, §3.5):
 
 - **Research Lead:** The operational owner responsible for planning, investigating, implementing, experimenting, evaluating, analyzing, and reporting.
 - **Research Advisor:** The intellectual and methodological reviewer responsible for theoretical guidance, problem clarification, critical assessment, and quality assurance.
@@ -56,7 +56,7 @@ The Research Lead orchestrates the lifecycle from the active host context; there
 
 ### 1.2 Core principles
 
-**P1. Closed role set.** Do not create additional Planner, Critic, Reviewer, or Evaluator agents. Planning, criticism, review, and evaluation are functions of the three core roles: the Lead owns execution and decisions, the Advisor owns critique and review, and the Worker owns bounded implementation. Beyond the core three, the team may call only named members in two tiers: (a) three specialist advisors — `harness-architector`, `backend-architector`, `frontend-architector` — for domain expertise: they advise only and never own gates, decisions, implementation, or acceptance; (b) two knowledge services — `okf-reader` (task-driven retrieval from the hub bundle) and `okf-writer` (bounded maintenance of hub records): they produce records, never rulings — no gate verdicts, no `src/` writes, no state-counter writes, no commits. The Lead is the sole invoker of both services.
+**P1. Fixed roles, flexible task capacity.** The seven named children remain the fixed roster (§2.4); only their designated roles have standing responsibilities. Do not add a Planner, Critic, Reviewer, or Evaluator as a lifecycle role. The Lead may also invoke operator-approved general subagents on demand for bounded tasks (§3.5). Pool members have no lifecycle authority and cannot replace any required call to a fixed role. The Lead is the sole invoker of the pool and both OKF services.
 
 **P2. One accountable owner.** The Lead owns every research deliverable. Advisor feedback does not transfer implementation responsibility.
 
@@ -86,7 +86,7 @@ The target has three role definitions and one host/subagents split:
 2. **Research Advisor subagent:** `.pi/agents/research-advisor/agent.md`, discovered and invoked through `pi-subagents`.
 3. **Engineering Worker subagent:** `.pi/agents/engineering-worker/agent.md`, discovered and invoked through `pi-subagents` for bounded implementation work.
 
-The Lead uses the Pi host's normal tools for research and may implement directly, but delegates bounded implementation work packages to the Engineering Worker and invokes the Advisor with the `subagent` tool for uncertainty-driven consultation and mandatory stage review. No separate workflow script, workflow engine, or fourth agent role is part of the initial target.
+The Lead delegates suitable standalone work as required by §3.5: bounded implementation goes to the Engineering Worker, mandatory reviews go to the Research Advisor, and other bounded tasks can go to the general pool. No separate workflow script or engine, new standing role, or second dispatch mechanism is needed.
 
 ### 2.1 Pi-native logical architecture
 
@@ -155,7 +155,7 @@ The Research Lead host prompt defines the loop discipline (inner/outer loop rout
 
 Use a structured Advisor response contract and Pi structured output where appropriate; check the verdict and cited evidence rather than relying on free-form agreement. A valid schema or successful Advisor child run proves only response shape/run completion—not scientific correctness.
 
-The host stays actively aware of every child run it launches — silent stalls are a first-class failure mode. After each dispatch the Lead confirms launch success promptly (status check against the recorded run ID), polls bounded background runs instead of assuming completion, and reconciles run/session artifacts on host resume. Any child failure (launch rejection such as an unresolvable model, mid-run error, timeout, missing result) is captured with its error text, recorded in project state, and surfaced to the human in-session immediately — HOLD plus direct notification, never silent retry beyond the capped rounds. Before any real research run, smoke-test all seven discoverable child definitions (advisor, worker, three architects, reader, writer) with a trivial task so unresolvable models or discovery breaks surface when the fix is cheap.
+The host stays actively aware of every child run it launches — silent stalls are a first-class failure mode. After each dispatch the Lead confirms launch success promptly (status check against the recorded run ID), polls bounded background runs instead of assuming completion, and reconciles run/session artifacts on host resume. Any child failure (launch rejection such as an unresolvable model, mid-run error, timeout, missing result) is captured with its error text, recorded in project state, and surfaced to the human in-session immediately — HOLD plus direct notification, never silent retry beyond the capped rounds. Before any real research run, smoke-test the seven fixed child definitions (Advisor, Worker, three architects, reader, writer) with a trivial task. Pool candidates are verified on first use and after relevant runtime or profile changes (§10.2).
 
 This design intentionally relies on the host Research Lead to follow the mandatory lifecycle. `pi-subagents` does not enforce research-stage gates on direct host actions. If non-bypassable policy enforcement becomes a requirement, add a separately designed and tested Pi permission/policy extension; do not claim the role prompts alone provide hard enforcement.
 
@@ -192,7 +192,9 @@ Two knowledge services maintain the documentation system so the Lead orchestrate
 
 The Lead is their sole invoker and owns everything they produce until verified: reader gaps become investigation tasks, writer `needs_review`/`rejected` results become Lead triage, and even `committed` results get a Lead spot-check before gate reliance. Record-vs-artifact boundary: the writer curates concept records, indexes, and logs; execution artifacts (`src/`, experiment outputs, Worker plan files, manifests, `project-state.json`) are written directly by their producers and indexed — not rewritten — by the writer. Canonical format authority is the agent-local OKF v0.2 specification copies (`.pi/agents/okf-reader/spec/`, `.pi/agents/okf-writer/spec/`); the older v0.1 skill copy is background, not authority.
 
-The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Lead role. Direct Worker→Advisor consults are prohibited: they bypass the Lead's consultation plan and can never produce a gate verdict (verdicts are Lead-requested and manifest-bound only). Worker uncertainty goes to its skills, to nested architect consults, or back to the Lead as BLOCKED. The host Research Lead has the tools needed to execute the research cycle and the `subagent` tool for Advisor and Worker delegation. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
+The **general subagent pool** is separate from the fixed roster. It reuses existing Pi subagent definitions for Lead-assigned, read-only tasks. See §3.5 for when to delegate, how to qualify a pool member, and what it may return.
+
+The Advisor's subagent definition must have a strict read-only tool allowlist and no `write`, `edit`, or general-purpose shell access. The Worker's subagent definition must have a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, and scoped command execution for assigned paths and tests), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, and a bounded nested-delegation grant (`allowNestedSubagents: true` capped by `maxSubagentDepth: 2`) so it can decompose major packages as the skill directs — never unrestricted fan-out, and never delegation to the Lead role. Direct Worker→Advisor consults are prohibited: they bypass the Lead's consultation plan and can never produce a gate verdict (verdicts are Lead-requested and manifest-bound only). Worker uncertainty goes to its skills, to nested architect consults, or back to the Lead as BLOCKED. The host Research Lead has the tools needed to run the research cycle and dispatch the fixed roster and general pool through `subagent`. Pi tool allowlists narrow Pi tools but do not themselves provide operating-system isolation.
 
 ---
 
@@ -212,7 +214,7 @@ Search, retrieve, compare, and synthesize scientific papers, technical documenta
 
 **Software engineering**
 
-Specify bounded implementation work packages (scope, target paths, acceptance criteria, verification commands), delegate them to the Engineering Worker where parallel or isolated execution helps, and verify the returned evidence. The Lead — not the Worker — decides whether the implementation satisfies the methodology and accepts it into the project.
+Specify bounded implementation work packages (scope, target paths, acceptance criteria, verification commands), delegate eligible packages to the Engineering Worker (§3.5), and verify the returned evidence. The Lead — not the Worker — decides whether the implementation satisfies the methodology and accepts it into the project.
 
 **Experimental methodology**
 
@@ -301,6 +303,15 @@ A critical principle:
 **Do not use self-reported confidence to bypass a mandatory review or an objective high-risk trigger.**
 
 For Pi orchestration, a material consultation trigger leads the host Research Lead to construct a focused consultation package and launch `research-advisor` directly via `subagent`. The Lead reviews the returned advice, records the decision and evidence references, and continues or revises its own work. If the Lead is blocked, it pauses and asks the human rather than converting the blocker into an implicit approval.
+
+### 3.5 Delegate concrete, self-contained work
+
+**Delegation is mandatory for a meaningful `READY` task that is easy to hand off, has concrete scope, and has a suitable authorized subagent within budget.** The Lead first looks for independently verifiable pieces rather than keeping a whole mixed task in the host. A handoff is ready when it can name the deliverable, permitted inputs and actions, exclusions, and a checkable acceptance criterion without sharing the Lead's live reasoning. Domain fit, independent checking, or useful parallelism can improve the result; the Lead does not have to prove improvement in advance. Stage descriptions that say the Lead executes work describe its accountability, not a requirement to do every step personally.
+
+- **Choose the assignee by responsibility.** Keep required Advisor reviews, architect consultations, OKF operations, and bounded write/implementation packages with their designated roles. Use the general pool for other standalone tasks such as extracting findings from specified papers, checking reported metrics against saved outputs, or classifying failures from a supplied sample. The Lead retains research judgment, routing, acceptance, and director communication. It may do tightly coupled work or trivial actions directly; for a meaningful task not delegated, record the concrete reason in its existing readiness/assignment record. If no eligible child can take it, the Lead may proceed directly only where existing budget, HOLD, and authority rules allow it; required calls have no pool or host substitute.
+- **Use an approved pool, not the entire discovered catalog.** The operator supplies an explicit list of eligible canonical names in the Lead's startup context. The Lead chooses among those already discoverable through `pi-subagents` without asking for approval for each task. Members must resolve with verified read-only tools, no general-purpose execution or delegation tools, and no nested calls. No agent is created ad hoc. Pool members cannot write project files, issue gate verdicts, make decisions, accept work, or contact the director.
+- **Reuse existing dispatch and acceptance records.** Send a fresh, bounded brief with an assignment ID, source or artifact versions, permitted inputs and actions, expected deliverable and acceptance checks, and a time/usage limit. Reuse §2.3 and §8.3 for dispatch tracking, failure handling, and acceptance. Require the result to echo the assignment ID and return the deliverable, evidence references, and any gaps or blockers. The Lead verifies it before use; pool output is working material, not a verdict or accepted evidence on arrival.
+- **encourage codemode:** The codemode tool lets the model write a JavaScript script that calls pi's other tools and runs non-LLM models, such as classifiers and image models.
 
 ---
 
@@ -476,7 +487,7 @@ Two deliberately different pauses: **HOLD** is resumable (awaiting evidence, a b
 
 **Three check levels — do not confuse them.** (1) *Per-attempt checks* (tests, smoke evaluations) run inside the inner loop after every implementation change; they decide retry vs. exit, never approval. (2) *Implementation readiness* is the PLAN_GATE `approve` verdict covering plan v_n's implementation baseline; per-attempt fixes stay covered by it unless they touch the interfaces, contracts, or validity assumptions the approval rested on — such changes invalidate the approval and require a fresh PLAN_GATE review before full evaluation. (3) *INNER_EXIT_GATE* is the mandatory Advisor review that closes the inner loop. It admits two package kinds: a complete evidence package, or an explicitly incomplete/invalid package submitted **for diagnosis only** (attempt budget spent, or the fix would require a plan change). A diagnosis-only package may route to ANALYSIS; it may never support a success claim or a `report` route.
 
-**Inner loop — IMPLEMENTATION ⇄ EVALUATION.** Commits endeavor to achieve the best outcome under the current approved plan (plan v_n): build/fix, run smoke tests and evaluations, diagnose failures, and iterate. The Lead executes small or plan-sensitive changes itself and delegates bounded work packages to the Engineering Worker (scoped spec, explicit file paths, acceptance criteria, verification commands); every Worker result returns as observed evidence the Lead verifies before acceptance — and no Worker package may be dispatched until the Lead records READY for it (§8.3). The loop stays inside the plan; it does not change research questions, hypotheses, metrics, or validity criteria. A fix that requires changing the plan (new hypothesis, different baselines/metrics, relaxed success criteria) exits early to ANALYSIS with the evidence marked incomplete-for-diagnosis, instead of silently redefining success inside the loop.
+**Inner loop — IMPLEMENTATION ⇄ EVALUATION.** Commits endeavor to achieve the best outcome under the current approved plan (plan v_n): build/fix, run smoke tests and evaluations, diagnose failures, and iterate. The Lead retains tightly coupled, plan-sensitive work and delegates eligible implementation packages to the Engineering Worker (scoped spec, explicit file paths, acceptance criteria, verification commands; §3.5); every Worker result returns as observed evidence the Lead verifies before acceptance — and no Worker package may be dispatched until the Lead records READY for it (§8.3). The loop stays inside the plan; it does not change research questions, hypotheses, metrics, or validity criteria. A fix that requires changing the plan (new hypothesis, different baselines/metrics, relaxed success criteria) exits early to ANALYSIS with the evidence marked incomplete-for-diagnosis, instead of silently redefining success inside the loop.
 
 **Outer loop — [PLANNING → IMPLEMENTATION → EVALUATION] → ANALYSIS → [PLANNING → IMPLEMENTATION → EVALUATION].** Commits endeavor to improve or resolve limitations of the initial plan: each outer cycle (n = 1, 2, …) runs the current plan through implementation and evaluation, then ANALYSIS diagnoses what limited the outcome (method, baselines, data, metrics, scope, assumptions) and proposes plan v_{n+1}. Re-planning requires an explicit cycle decision plus Advisor review; the Lead must not start the next outer cycle on its own authority.
 
@@ -568,7 +579,7 @@ Where practical, record the experiment protocol before observing the primary eva
 
 **Objective:** Build the software and experimental infrastructure required by the approved methodology.
 
-The Lead decomposes the approved methodology into bounded work packages and assigns them to the Engineering Worker (or implements plan-sensitive pieces itself). A package states the exact scope, allowed file paths, relevant specs, acceptance criteria, and the verification commands the Worker must run. The Worker edits only granted paths, never project plans (except its own granted plan file under `.pi/plans/`, whose internal progress records it maintains itself), decisions, or review records. Record-keeping split: the Worker owns its skill-plan records; the Lead owns all assignment, acceptance, and project-state records and derives them from the Worker's reported result, never from Worker-written state. The Lead inspects the returned evidence (files changed, test commands with observed results), re-runs key checks where cheap, and accepts or rejects the work; acceptance is a Lead decision, never a Worker claim.
+The Lead decomposes the approved methodology into bounded work packages and assigns eligible implementation packages to the Engineering Worker (§3.5). A package states the exact scope, allowed file paths, relevant specs, acceptance criteria, and the verification commands the Worker must run. The Worker edits only granted paths, never project plans (except its own granted plan file under `.pi/plans/`, whose internal progress records it maintains itself), decisions, or review records. Record-keeping split: the Worker owns its skill-plan records; the Lead owns all assignment, acceptance, and project-state records and derives them from the Worker's reported result, never from Worker-written state. The Lead inspects the returned evidence (files changed, test commands with observed results), re-runs key checks where cheap, and accepts or rejects the work; acceptance is a Lead decision, never a Worker claim.
 
 The Lead should decompose the stage into packages that together cover:
 1. Inspection of existing code, libraries, and datasets.
@@ -1274,7 +1285,7 @@ Re-planning may change hypotheses, methods, baselines, metrics, or scope — but
 
 ### 10.1 Target platform and runtime
 
-**Use the main Pi session as the Research Lead host, and use `pi-subagents` to launch children strictly per the §11.1 caller→callee roster (Advisor, Worker, three architects, reader, writer).** The initial implementation covers the role definitions under `.pi/agents/` incrementally (Milestone 1: core three; architects, reader, writer seated by Milestone 1 exit probes); it does not include a separate workflow script, a Research Lead child agent, or another agent framework.
+**Use the main Pi session as the Research Lead host, and use `pi-subagents` for the fixed roster and the approved general pool, following the caller boundaries in §11.1.** The initial implementation covers the role definitions under `.pi/agents/` incrementally (Milestone 1: core three; architects, reader, writer seated by Milestone 1 exit probes); it does not include a separate workflow script, a Research Lead child agent, or another agent framework.
 
 | Role/runtime element | Pi implementation | Responsibility |
 |---|---|---|
@@ -1300,16 +1311,17 @@ Use these paths:
 
 - `.pi/agents/engineering-worker/agent.md`: Pi subagent definition with YAML frontmatter and the Worker system prompt. Its canonical runtime name is `engineering-worker`.
 
-The Lead prompt is not a child agent and should not be launched with `subagent`. Prefer plain Markdown without Pi subagent YAML frontmatter for this file; only the Advisor and Worker files need subagent frontmatter. If the Lead file is nevertheless discovered as a child, exclude `agents/research-lead` from `subagents.agentExcludeDirs` in `.pi/settings.json` (relative to `.pi`); this removes it from the child catalog without affecting direct `--append-system-prompt` loading. Keep only `research-advisor` and `engineering-worker` available as the research subagents. Note the current project `.pi/settings.json` is empty (`{}`): the exclusion, model overrides, and any tool defaults must still be added and their effect verified — list the discovered child catalog before and after, and confirm the Lead prompt loads via the flag in both states.
+The Lead prompt is not a child agent and should not be launched with `subagent`. Prefer plain Markdown without Pi subagent YAML frontmatter for this file; the Advisor and Worker use standard subagent definitions like other discoverable children. If the Lead file is nevertheless discovered as a child, exclude `agents/research-lead` from `subagents.agentExcludeDirs` in `.pi/settings.json` (relative to `.pi`); this removes it from the child catalog without affecting direct `--append-system-prompt` loading. Keep fixed-role names reserved; discovery alone does not make an additional agent eligible for general pool work (§3.5). Note the current project `.pi/settings.json` is empty (`{}`): the exclusion, model overrides, and any tool defaults must still be added and their effect verified — list the discovered child catalog before and after, and confirm the Lead prompt loads via the flag in both states.
 
 **Runtime pin and verification checklist.** This design was written against Pi CLI 1.6.0 and `pi-subagents` 0.89.2. Before implementing the prompts, pin the deployed versions and verify each of the following against the running system; every frontmatter field and invocation below is conditional on verification until then:
 
 1. The exact frontmatter keys the deployed `pi-subagents` honors (`tools`, `model`, `thinking`, `systemPromptMode`, `inheritProjectContext`, `defaultContext`, `acceptanceRole`, aliases) — the reference file's keys are examples, not proof.
 2. What a fresh child context excludes (host conversation, host system prompt) and still loads (project context files, skills, tool providers) for each child.
-3. The effective tool list of each child at launch (inspect, don't assume), including that no delegation-capable tool is reachable from the Advisor, reader, or writer children. Allowed delegation edges are Lead → {advisor, worker, architects, reader, writer} and Worker → {architects} nested — specify edges first, then verify the deployed `maxSubagentDepth` setting name, scope, and depth-counting convention against the running system so that exactly the Worker→architect edge occurs and nothing deeper; do not assume the setting is honored. Caller-specific denial that is not runtime-enforced is labeled prompt policy, not a restriction.
+3. The effective tool list of each child at launch (inspect, don't assume), including that no delegation-capable tool is reachable from the Advisor, reader, or writer children. Allowed delegation edges are Lead → {Advisor, Worker, architects, reader, writer, approved pool} and Worker → {architects} nested — specify edges first, then verify the deployed `maxSubagentDepth` setting name, scope, and depth-counting convention against the running system so that exactly the Worker→architect edge occurs and nothing deeper; do not assume the setting is honored. Caller-specific denial that is not runtime-enforced is labeled prompt policy, not a restriction.
 4. The `agentExcludeDirs` path base and its effect on discovery vs. direct prompt loading.
 5. Structured-output support and schema-constraint behavior for gate verdicts (§4.4, §11.2–11.3).
-6. The effective provider/model ID and override source for every one of the seven discoverable roles (advisor, worker, three architects, reader, writer), resolved from the actual call sites at preflight. An unresolved pin or unapproved fallback does not count as a successful launch.
+6. The effective provider/model ID and override source for all seven fixed children, resolved from their actual call sites at preflight. An unresolved pin or unapproved fallback does not count as a successful launch.
+7. For each selected pool member, verify approval, discovery, resolved model, and effective read-only/non-delegating tools before relying on it. Use a trivial smoke task on first use and after relevant configuration or runtime changes; do not add the whole pool to the seven-child kickoff smoke test.
 
 The Research Lead's tools come from the main Pi host configuration. Ensure the `pi-subagents` extension and its `subagent` tool are available in that session. The Advisor's frontmatter should set an explicit read-only tool allowlist (for example `read`, `grep`, `find`, `ls`, plus selected read-only evidence providers), project-context inheritance as needed, a separately configurable model, and no nested subagent delegation. The Worker's frontmatter should set a bounded write-capable allowlist (read/inspect tools plus `edit`, `write`, scoped command execution such as `bash`/`codemode`, AND explicit `subagent` — empirically, the `allowNestedSubagents` grant alone does not surface the spawn tool in the child session; the explicit entry is required, and the depth cap remains the enforcement guard), the `implementation-workflow` and `problem-framing-and-autonomous-decision-making` skills, a bounded nested-delegation grant (`allowNestedSubagents: true`, `maxSubagentDepth: 2`), and a separately configurable model. Loading a tool provider/extension and allowlisting its tool are separate configuration steps.
 
@@ -1356,7 +1368,7 @@ The Lead must be capable enough to implement and evaluate real experiments. A ch
 **Research Lead host**
 
 - Uses the main Pi session's filesystem, repository, terminal, research, and experiment tools within the host's configured permissions.
-- Uses the `subagent` tool to delegate bounded consultation/review work to `research-advisor` and bounded implementation work to `engineering-worker`.
+- Uses `subagent` to call the fixed roster and approved pool within their respective task and permission boundaries (§3.5, §11.1).
 - Owns implementation acceptance and project artifact changes.
 
 **Research Advisor subagent**
@@ -1385,7 +1397,7 @@ Judgment stays with the Lead; arithmetic, schema, and comparison move into a sma
 | `ledger` | `get`: state + decisions; `advance`: charged event; `termination-check`: state + charter; `status`/`next`/`progress`: derived awareness views per §8.8 | machine-readable counters, charge receipts, which termination predicate fired (achievement-first precedence baked in), one-screen status, eligible candidate next actions, objective rollup + cycle trend | CYCLE_GATE charging and termination enforcement (§5.1, §8.4); session start/resume and pre-gate awareness (§8.8) |
 | `preflight` | repo root | recorded roster (7 canonical names), effective model + override source per role, depth config, validator availability | kickoff, Milestone 1 exit (§10.2 item 6, §13) |
 | `freshness-flags` | hub root, `project-state.json` | flag list (brief as-of vs state, `stale_after` evaluation, reader provenance vs live state) | CYCLE_GATE brief refresh, director Q&A (§8.6–8.7) |
-| `smoke-roster` | repo root | per-role launch success + resolved model for all seven discoverable children | kickoff, Milestone 1 exit, post-upgrade re-verification |
+| `smoke-roster` | repo root | per-role launch success + resolved model for the seven fixed children | kickoff, Milestone 1 exit, post-upgrade re-verification |
 
 Shared wiring rules: tools live in one versioned location shared by all projects (`tools/research-ops/`, stdlib-only, no installs) and take the project root as an argument; only `ledger advance` writes state, and only when Lead-invoked (serialized with hub mutations per §8.7); every invocation and result is recorded as evidence with the tool version; a tool failure, missing tool, or version mismatch holds the dependent gate exactly like a failed validator (§12.4). Implemented: `ledger.py` with `get` (via `show`), `advance`, `termination-check`, `status`, `next`, `progress` + `project-state.schema.json` + 16 self-tests green; remaining §10.7 tools are spec'd, not yet built.
 
@@ -1405,10 +1417,10 @@ Shared wiring rules: tools live in one versioned location shared by all projects
 
 - Own research planning, implementation, evaluation, analysis, and reporting.
 - Maintain project state, artifacts, evidence, budgets, and decisions in the research workspace — hub concept records, indexes, and logs via `okf-writer`; `project-state.json` counters and git checkpoints directly.
-- Assess task understanding and readiness before substantial work.
-- Use the `subagent` tool as the sole invoker under this caller→callee roster (closed per P1 — no other agent roles): Lead → `research-advisor` (consultation, gate review), Lead → `engineering-worker` (bounded packages), Lead → `harness-architector` / `backend-architector` / `frontend-architector` (domain advice), Lead → `okf-reader` (evidence retrieval) and Lead → `okf-writer` (hub record mechanics). Worker → architects nested inside a package only. Do not create or delegate to any other agent role.
+- Assess readiness and look for independently verifiable pieces before doing substantial work. Delegate every meaningful, self-contained `READY` task with concrete scope and a suitable authorized assignee within budget; record the reason for retaining a meaningful task (§3.5).
+- Use `subagent` for Lead → `research-advisor` (consultation, gate review), `engineering-worker` (bounded implementation), the three named architects (domain advice), `okf-reader` / `okf-writer` (hub work), and approved general pool members (bounded read-only work only). The Worker may invoke only the named architects, nested inside a package. Pool members cannot delegate, and no discovered-but-unapproved agent is eligible.
 - OKF handoff policy: task the services with mechanics, never judgment — state exact intended record changes and scope; reader RESULT JSON is evidence with a searched scope, never absence-proof; writer `committed` gets a spot-check before gate reliance and `needs_review`/`rejected` gets triage (supply, narrow, or record the conflict), never silent override; writer output is records, never rulings.
-- Verify Worker results against acceptance criteria and re-run key checks where cheap; accept or reject the work explicitly.
+- Verify Worker and general pool results against acceptance criteria and re-run key checks where practical; accept or reject the work explicitly.
 - Submit completed artifacts for mandatory Advisor review at every stage gate.
 - Integrate advice, verify findings independently, and document unresolved disagreements.
 - Ask the human directly when authority, unavailable information, or a material scope decision requires it.
@@ -1498,7 +1510,7 @@ Notes: the Worker template grants the bounded nested-delegation tools (`subagent
 **Tool and authority boundary**
 
 - Edit only granted code/test/config paths; never touch plans, hypotheses, decisions, reviews, state records, or out-of-scope files.
-- Never spawn agents, orchestrate later stages, broaden scope, relax verification, or claim an unrun check passed.
+- Delegate only to the three named architects within the package; never call the general pool. Never orchestrate later stages, broaden scope, relax verification, or claim an unrun check passed.
 - A `complete` run status reports that the assignment settled; only the Lead's acceptance makes the output project evidence.
 
 **Responsibilities**
@@ -1626,8 +1638,9 @@ Implement:
 - `.pi/agents/okf-reader/agent.md` and `.pi/agents/okf-writer/agent.md` as the knowledge-service definitions (Lead-invoked only; §8.7 delegation contract).
 - Project state/artifact layout, the Advisor consultation/review contract, and the Worker assignment/acceptance contract (Section 8.3).
 - Agent-discovery exclusion for the Lead prompt directory if its format would otherwise make it a child agent.
+- The §3.5 delegation rule and a Lead-only handoff to at least one operator-approved, read-only pool member through existing `pi-subagents` discovery.
 
-**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor returns read-only inspection evidence; the Worker returns structured evidence for granted-path work; the Lead independently routes and consumes consultations and work packages. All seven discoverable definitions (advisor, worker, three architects, reader, writer) resolve by canonical name from their authorized call sites, with effective provider/model ID and override source recorded per role — an unresolved pin or unapproved fallback does not count as a successful launch, and all three Worker→architect routes verify. This exit is behavioral evidence only: nothing in Milestone 1 proves the Worker cannot touch out-of-scope paths — prompt rules are not enforcement. Enforceable confinement (denied out-of-scope read/write/execution/delegation tests, named enforcement point) is verified in Milestone 3 before any write-capable deployment beyond exercises.
+**Exit criterion:** The Lead prompt loads in the host session; the Advisor and Worker are discoverable and can be invoked by name; the Advisor returns read-only inspection evidence; the Worker returns structured evidence for granted-path work; the Lead independently routes and consumes consultations and work packages. All seven fixed definitions (advisor, worker, three architects, reader, writer) resolve by canonical name from their authorized call sites, with effective provider/model ID and override source recorded per role — an unresolved pin or unapproved fallback does not count as a successful launch, and all three Worker→architect routes verify. In a bounded exercise, the Lead delegates a concrete, eligible task to an approved pool member and verifies the result; a discovered but unapproved candidate is not used. This exit is behavioral evidence only: nothing in Milestone 1 proves the Worker cannot touch out-of-scope paths — prompt rules are not enforcement. Enforceable confinement (denied out-of-scope read/write/execution/delegation tests, named enforcement point) is verified in Milestone 3 before any write-capable deployment beyond exercises.
 
 ### Milestone 2 — Host-led lifecycle discipline
 
@@ -1647,7 +1660,7 @@ Implement:
 - Trusted literature/search tools and source provenance.
 - Repository and project artifact access.
 - Isolated code execution, automated testing, and experiment runner.
-- Worker confinement verification: denied out-of-scope read/write/execution/delegation probes against the named enforcement point (host/tool-layer sandbox and workspace isolation); read permission verified separately from modify permission. Denied delegation probes include Worker→Advisor, Worker→reader/writer, and any non-Lead invocation of the knowledge services. No write-capable Worker deployment beyond exercises until these probes pass.
+- Worker confinement verification: denied out-of-scope read/write/execution/delegation probes against the named enforcement point (host/tool-layer sandbox and workspace isolation); read permission verified separately from modify permission. Denied delegation probes include Worker→Advisor, any non-Lead invocation of the knowledge services or pool, and delegation originating from a pool member. No write-capable Worker deployment beyond exercises until these probes pass.
 - Immutable experiment configurations/results and artifact manifests.
 - Explicitly scoped extensions/MCP tools for the host, Advisor, and Worker.
 
@@ -1675,7 +1688,7 @@ Implement:
 
 **Exit criterion:** The system demonstrates measurable improvements in research quality and resource efficiency while preserving honest failure and inconclusive outcomes.
 
-Do not add a lifecycle workflow script, another agent role beyond the three defined, a large memory service, or a dashboard before evaluation demonstrates that need.
+Do not add a lifecycle workflow script, another standing role, a separate pool scheduler, a large memory service, or a dashboard before evaluation demonstrates that need.
 
 ---
 
@@ -1754,14 +1767,15 @@ The initial system should adopt the following decisions.
 
 | Decision | Recommendation |
 |---|---|
-| Number of role definitions | Three core roles (Lead host prompt, Advisor subagent, Worker subagent) plus three specialist advisors plus two knowledge services (okf-reader, okf-writer); closed set per P1 |
+| Fixed roles | One Lead host and seven named children: Advisor, Worker, three specialist architects, and two OKF services |
+| General subagent pool | Operator-approved, Lead-only Pi children for bounded read-only tasks; no standing authority, no writes, no nested delegation (§3.5) |
 | Research Lead | Main Pi session loaded with `.pi/agents/research-lead/agent.md` via `--append-system-prompt` |
 | Research Advisor | Read-only Pi child agent at `.pi/agents/research-advisor/agent.md` |
 | Engineering Worker | Bounded-writer Pi child agent at `.pi/agents/engineering-worker/agent.md` (nested delegation bounded: skill-directed, depth ≤ 2) |
 | Specialist advisors | Pre-existing read-only consultants (`harness-architector`, `backend-architector`, `frontend-architector`); called by Lead directly or by Worker nested; advise only, never gate/decide/implement |
 | Primary owner | Research Lead host agent |
-| Orchestration | Research Lead directly invokes children strictly per the §11.1 caller→callee roster through the `pi-subagents` `subagent` tool |
-| Agent autonomy | Lead executes research work in the host session; Advisor provides bounded advice/review child runs; Worker executes only assigned implementation packages and returns observed evidence |
+| Orchestration | The Lead uses the same `subagent` tool for the fixed roster and the approved general pool (§11.1) |
+| Agent autonomy | The Lead must delegate suitable, concrete work (§3.5) and retains decisions and acceptance; children return bounded results without acquiring authority |
 | Review enforcement | Mandatory instruction-level gates (verdict/route table §8.4, fail-closed validation §4.4) in the Lead prompt; not application-enforced unless a separate policy extension is added |
 | Confidence assessment | Structured readiness records, not arbitrary scores |
 | Consultation context | Compact task briefs with expandable primary-artifact references and fresh Advisor context |
