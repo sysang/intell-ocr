@@ -35,8 +35,10 @@
 ## 4. Scientific evaluation and reporting
 
 - [x] Implement a deterministic reference paired analysis with frozen input hashes, raw CSV and config provenance, seeded uncertainty, limits, and a clearly labeled draft output. Verify with constructed observations; do not report these as an empirical result about models.
-- [ ] Choose a Director-authorized real research question, data, experimental budget, and baselines. Preserve raw observations, split development from confirmatory evidence, retain null/negative results, and trace reviewed claims through the final manifest.
-- [ ] Evaluate system variants, repeated runs, quality of consultations, and cost/latency against the §12 rubric. A gate approval is a review outcome, not scientific proof.
+- [ ] **Deferred until runtime development has produced useful usage evidence:** choose a Director-authorized real research question, data, experimental budget, and baselines. Preserve raw observations, split development from confirmatory evidence, retain null/negative results, and trace reviewed claims through the final manifest.
+- [ ] **Deferred formal system evaluation:** compare variants, repeated runs, consultation quality, and cost/latency against the §12 rubric after actual usage yields a meaningful evidence base. Do not claim effectiveness from development observations or gate approvals alone.
+
+**Sequencing decision:** The Director intends to debug and improve the system through authorized real runtime use rather than requiring a separate scientific pilot before development. Capture operational evidence from those runs where available. This defers, but does not waive, formal scientific/system evaluation before making effectiveness claims; deployment security and resource-authorization gates still apply.
 
 ## 5. Deployment recovery and budgets
 
@@ -49,4 +51,4 @@
 
 **Deployment constraint:** No `research-projects/` deployment/attestation or operator-approved confinement and pool profile was present in this checkout. No paid or live child runs were launched; deployment smoke, confinement probes, and Worker/pool pilots remain open.
 
-**Next:** (1) complete the operator-approved model and confinement probes in a disposable deployment, (2) perform the single-writer and approved read-only pool launch/recovery pilots, (3) run a Director-authorized research pilot and record scientific and resource outcomes.
+**Next:** (1) complete the operator-approved model and confinement probes in a disposable deployment, (2) perform the single-writer and approved read-only pool launch/recovery pilots, (3) continue authorized real-use development with operational evidence capture; schedule formal research/system evaluation after sufficient runtime evidence accumulates and before making effectiveness claims.
