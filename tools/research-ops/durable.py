@@ -1,0 +1,116 @@
+"""Serialization, guarded operations, and atomic publication of project state."""
+import copy
+import fcntl
+import json
+import os
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+import evidence
+import gates
+
+
+@contextmanager
+def lock(path):
+    # Keep the lock inode stable while project-state.json is atomically replaced.
+    with open(path.with_suffix('.lock'), 'a', encoding='utf-8') as guard:
+        fcntl.flock(guard, fcntl.LOCK_EX)
+        yield
+
+
+def save(path, value):
+    fd, tmp = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(value, f, indent=2, allow_nan=False)
+            f.write('\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        directory = os.open(path.parent, os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def new_state(project_id, objectives, outer, inner, charter, stagnation):
+    evidence.require(evidence.ident(project_id) and evidence.texts(objectives) and objectives and
+                     3 <= outer <= 5 and inner > 0 and stagnation >= 2, 'invalid project initialization')
+    return {'format': 1, 'revision': 0, 'operations': {}, 'execution': evidence.empty(), 'gate_reviews': {},
+            'policy': {'inner_limit': inner, 'stagnation_cycles': stagnation},
+            'identity': {'project_id': project_id, 'charter_ref': charter, 'protocol_version': '1'},
+            'lifecycle': {'stage': 'CREATED', 'status': 'active', 'outer_cycle': 1, 'inner_attempt': 0, 'plan_version': 'v1'},
+            'budgets': {'outer_cycles': {'max': outer, 'used': 1}},
+            'objectives': [{'id': f'O-{i}', 'text': o, 'status': 'untested', 'evidence_refs': []}
+                           for i, o in enumerate(objectives, 1)],
+            'assignments': [], 'progress_verdicts': [], 'gates': {}, 'blockers': [], 'consultations': [], 'decisions': []}
+
+
+def validate(state):
+    try:
+        evidence.require(type(state['format']) is int and state['format'] == 1 and
+                         type(state['revision']) is int and state['revision'] >= 0 and
+                         not state['assignments'], 'unsupported format or legacy assignment records present')
+        evidence.require(isinstance(state['gate_reviews'], dict) and isinstance(state['operations'], dict) and
+                         sorted(r['revision'] for r in state['operations'].values()) == list(range(1, state['revision'] + 1)),
+                         'missing or invalid operation receipts')
+        evidence.require(all(type(state['policy'][k]) is int and state['policy'][k] >= lower
+                             for k, lower in (('inner_limit', 1), ('stagnation_cycles', 2))), 'invalid policy limits')
+        evidence.require(state['budgets']['outer_cycles']['used'] == state['lifecycle']['outer_cycle'], 'cycle charge mismatch')
+        db = state['execution']
+        evidence.require(set(db) == set(evidence.KINDS) and all(isinstance(rows, dict) for rows in db.values()), 'invalid evidence tables')
+        ids = set()
+        for rows in db.values():
+            for key, item in rows.items():
+                evidence.require(evidence.ident(key) and key == item['id'] and key not in ids, 'duplicate or malformed evidence ID')
+                ids.add(key)
+        for attempt in db['attempts'].values():
+            brief = evidence.find(db, 'briefs', attempt['revision_id'])
+            evidence.require(attempt['assignment_id'] == brief['assignment_id'] and attempt['execution'] in
+                             ('dispatch_pending', 'launch_unknown', 'dispatched', 'terminated', 'not_dispatched'),
+                             'invalid attempt binding')
+        runs = [a['run_id'] for a in db['attempts'].values() if a['run_id']]
+        evidence.require(len(runs) == len(set(runs)), 'duplicate Pi run binding')
+        for result in db['results'].values():
+            attempt = evidence.find(db, 'attempts', result['attempt_id'])
+            evidence.require(all(result[k] == attempt[k] for k in ('assignment_id', 'revision_id')), 'result binding mismatch')
+        for d in db['decisions'].values():
+            attempt = evidence.find(db, 'attempts', d['attempt_id'])
+            evidence.require(d['revision_id'] == attempt['revision_id'], 'decision binding mismatch')
+            if d.get('result_id'):
+                evidence.require(evidence.find(db, 'results', d['result_id'])['attempt_id'] == attempt['id'], 'result mismatch')
+            if d.get('supersedes'):
+                evidence.find(db, 'decisions', d['supersedes'])
+        for kind in ('availability', 'uses'):
+            for row in db[kind].values():
+                evidence.find(db, 'decisions', row['decision_id'])
+        return []
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        return [f'invalid managed state: {exc}']
+
+
+def apply(state, group, action, payload, op_id, expected, actor, reason, now, root):
+    evidence.require(state.get('format') == 1, 'legacy snapshot: migrate explicitly before using managed operations')
+    evidence.require(evidence.ident(op_id) and evidence.text(actor) and evidence.text(reason) and
+                     type(expected) is int and expected >= 0 and isinstance(payload, dict), 'operation metadata required')
+    fingerprint = evidence.digest([group, action, payload, expected, actor, reason])
+    old = state['operations'].get(op_id)
+    if old:
+        evidence.require(old['fingerprint'] == fingerprint, 'operation ID reused with different input')
+        return None, {**old, 'replayed': True, 'launch_eligible': False}
+    evidence.require(expected == state['revision'], f"revision conflict; current={state['revision']}")
+    new = copy.deepcopy(state)
+    handler = evidence.transition if group == 'evidence' else gates.advance
+    receipt = handler(new, action, payload, now, root)
+    new['revision'] += 1
+    receipt.update(revision=new['revision'], op_id=op_id, fingerprint=fingerprint,
+                   group=group, action=action, actor=actor, reason=reason, at=now, replayed=False)
+    # A saved receipt is historical; only this immediate, fresh call can authorize submission.
+    new['operations'][op_id] = {**receipt, 'launch_eligible': False}
+    problems = validate(new)
+    evidence.require(not problems, '; '.join(problems))
+    return new, receipt

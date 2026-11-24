@@ -1,3 +1,7 @@
 .tmp/
 
 .pi/
+__pycache__/
+.beads/
+research-projects/*/project-state.lock
+research-projects/*/research-config.json

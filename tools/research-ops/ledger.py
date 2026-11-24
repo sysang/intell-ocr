@@ -6,6 +6,9 @@ goes through invariant checks, and status/next/progress/termination views are
 computed from the snapshot. Views carry generation metadata; a stale view is
 labeled stale, never silently trusted.
 
+Managed writes: init and apply. Exact reads: get (evidence and gate IDs).
+Legacy advance is dry-run only. See the runbook for guarded payloads.
+
 Usage:
   ledger.py validate <state.json>
   ledger.py status <state.json>
@@ -13,7 +16,7 @@ Usage:
   ledger.py progress <state.json>
   ledger.py termination-check <state.json>
   ledger.py show <section> <state.json>
-  ledger.py advance <state.json> --event EVENT [--in-place] [event args...]
+  ledger.py advance <state.json> --event EVENT [event args...]
 
 Exit codes: 0 ok (for termination-check: 0 whichever predicate fires; the
 fired predicate is in the output). 1 invariant violation / illegal event.
@@ -25,6 +28,12 @@ import copy
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
+import subprocess
+
+import durable
+import evidence
+import gates
 
 MAX_REVISE_ROUNDS = 2
 EARLY_STOP_DEFAULT = 2
@@ -48,6 +57,8 @@ def load_state(path):
 def check_invariants(state):
     """Return a list of violation strings; empty means the snapshot is sound."""
     problems = []
+    if not isinstance(state, dict):
+        return ["state must be a JSON object"]
     if "__load_error__" in state:
         return ["state file unreadable: " + state["__load_error__"]]
     for top in ("identity", "lifecycle", "budgets", "objectives",
@@ -106,11 +117,12 @@ def check_invariants(state):
             problems.append("objective %s marked met with no evidence_refs" % o.get("id"))
     if lc.get("status") == "suspended" and lc.get("stage") != "COMPLETED":
         # SUSPENDED is terminal-but-not-complete; allowed only with a recorded report trail.
-        ok = any(d.get("status") in ("closed", "superseded") for d in state["decisions"]) \
-            or any(b.get("status") == "confirmed-unresolvable" for b in state["blockers"])
+        ok = bool(lc.get('status_report')) if 'format' in state else (
+            any(d.get('status') in ('closed', 'superseded') for d in state['decisions']) or
+            any(b.get('status') == 'confirmed-unresolvable' for b in state['blockers']))
         if not ok:
             problems.append("SUSPENDED with no closed decision or confirmed-unresolvable blocker on record")
-    return problems
+    return problems + (durable.validate(state) if 'format' in state else [])
 
 
 def generation_meta(state_path):
@@ -329,9 +341,74 @@ def main(argv=None):
     p.add_argument("--obj-status")
     p.add_argument("--evidence")
     p.add_argument("--reason")
+    init = sub.add_parser('init')
+    init.add_argument('state')
+    init.add_argument('--project', required=True)
+    init.add_argument('--objective', action='append', required=True)
+    init.add_argument('--outer-limit', type=int, default=4)
+    init.add_argument('--inner-limit', type=int, default=3)
+    init.add_argument('--stagnation-cycles', type=int, default=2)
+    init.add_argument('--charter', default='charter.md')
+    apply = sub.add_parser('apply')
+    apply.add_argument('state')
+    apply.add_argument('group', choices=('evidence', 'lifecycle'))
+    apply.add_argument('action')
+    apply.add_argument('--input', required=True, help='JSON file or - for stdin')
+    apply.add_argument('--op-id', required=True)
+    apply.add_argument('--expected-revision', required=True, type=int)
+    apply.add_argument('--actor', required=True)
+    apply.add_argument('--reason', required=True)
+    get = sub.add_parser('get')
+    get.add_argument('state')
+    get.add_argument('id')
+    close = sub.add_parser('check-close')
+    close.add_argument('state')
+    close.add_argument('task')
+    close.add_argument('record')
+    close.add_argument('disposition', choices=('accepted', 'dropped'))
     args = ap.parse_args(argv)
-    state = load_state(args.state)
-    problems = check_invariants(state)
+    path = Path(args.state).resolve()
+    try:
+        if args.cmd in ('init', 'apply'):
+            with durable.lock(path):
+                if args.cmd == 'init':
+                    evidence.require(not path.exists(), 'state already exists')
+                    new = durable.new_state(args.project, args.objective, args.outer_limit, args.inner_limit,
+                                            args.charter, args.stagnation_cycles)
+                    receipt = {'revision': 0, 'project': args.project}
+                else:
+                    state = load_state(path)
+                    problems = check_invariants(state)
+                    evidence.require(not problems, '; '.join(problems))
+                    if args.input == '-':
+                        payload = json.load(sys.stdin)
+                    else:
+                        with open(args.input, encoding='utf-8') as f:
+                            payload = json.load(f)
+                    new, receipt = durable.apply(state, args.group, args.action, payload, args.op_id,
+                                                 args.expected_revision, args.actor, args.reason, now_iso(), path.parent)
+                    if new is not None:
+                        problems = check_invariants(new)
+                        evidence.require(not problems, '; '.join(problems))
+                if new is not None:
+                    durable.save(path, new)
+            print(json.dumps(receipt, indent=2))
+            return 0
+        state = load_state(path)
+        problems = check_invariants(state)
+        if not problems and args.cmd in ('get', 'check-close'):
+            evidence.require(state.get('format') == 1, 'operation requires managed state')
+            if args.cmd == 'get':
+                result = ({'kind': 'gate_review', 'record': state['gate_reviews'][args.id]}
+                          if args.id in state['gate_reviews'] else evidence.get(state, args.id))
+            else:
+                evidence.close_check(state, args.task, args.record, args.disposition, path.parent)
+                result = {'allowed': True, 'revision': state['revision'], 'project': state['identity']['project_id']}
+            print(json.dumps(result, indent=2))
+            return 0
+    except (ValueError, OSError, TypeError, KeyError, AttributeError, subprocess.TimeoutExpired) as exc:
+        print(json.dumps({'refused': str(exc)}))
+        return 1
     if args.cmd == "validate":
         print(json.dumps({"valid": not problems, "violations": problems}, indent=2))
         return 1 if problems else 0
@@ -340,28 +417,43 @@ def main(argv=None):
                           "violations": problems}, indent=2))
         return 1
     meta = generation_meta(args.state)
+    if state.get('format') == 1:
+        meta['revision'] = state['revision']
     if args.cmd == "status":
-        print(json.dumps(cmd_status(state, meta), indent=2))
+        status = cmd_status(state, meta)
+        if state.get('format') == 1:
+            status.pop('gate_readiness')
+            status['gate_reviews'] = [{k: row[k] for k in ('gate', 'phase', 'verdict', 'route')} | {'id': key}
+                                      for key, row in state['gate_reviews'].items() if row['cycle'] == status['outer_cycle']]
+            status['gate_flags'] = gates.flags(state, path.parent)
+            status['execution'] = evidence.view(state['execution'])
+        print(json.dumps(status, indent=2))
     elif args.cmd == "next":
-        print(json.dumps(cmd_next(state, meta), indent=2))
+        if state.get('format') == 1:
+            print(json.dumps({'meta': meta, 'stage': state['lifecycle']['stage'],
+                              'status': state['lifecycle']['status'], 'execution': evidence.view(state['execution']),
+                              'gate_flags': gates.flags(state, path.parent),
+                              'candidates': gates.candidates(state, path.parent)}, indent=2))
+        else:
+            print(json.dumps(cmd_next(state, meta), indent=2))
     elif args.cmd == "progress":
         print(json.dumps(cmd_progress(state, meta), indent=2))
     elif args.cmd == "termination-check":
-        print(json.dumps(cmd_termination_check(state, meta), indent=2))
+        print(json.dumps({'meta': meta, 'predicates': gates.predicates(state)} if state.get('format') == 1
+                         else cmd_termination_check(state, meta), indent=2))
     elif args.cmd == "show":
         if args.section not in state:
             print(json.dumps({"error": "unknown section %r" % args.section}))
             return 2
         print(json.dumps(state[args.section], indent=2))
     elif args.cmd == "advance":
+        if state.get('format') == 1 or args.in_place:
+            print(json.dumps({'refused': 'advance is a legacy dry-run; use guarded apply for managed writes'}))
+            return 1
         new, receipt = cmd_advance(state, args)
         if new is None:
             print(json.dumps({"refused": receipt}, indent=2))
             return 1
-        if args.in_place:
-            with open(args.state, "w", encoding="utf-8") as fh:
-                json.dump(new, fh, indent=2)
-                fh.write("\n")
         print(json.dumps({"receipt": receipt, "state": new}, indent=2))
     return 0
 

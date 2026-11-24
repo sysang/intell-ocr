@@ -1,0 +1,50 @@
+# Development tracker — Autonomous Research Team for Applied AI
+
+**Authority:** [Blueprint v1.4](blueprint-v1.md); [Beads tool proposal](proposal-for-assignment-management-tools-beads.md) is implementation guidance, subject to the pinned CLI. This file tracks development, not a research project's task backlog or evidence. Record verification against the actual implementation, and do not mark a live-runtime item complete on the strength of a fixture.
+** Pi Session ID:** `01a2067b-888d-7468-be97-dfb6fb376f00`
+
+## 1. Foundation and assignment lifecycle
+
+- [x] Preserve the main Pi session as Research Lead and reuse the seven fixed-role definitions and `pi-subagents`. Keep the pool Lead-only, fixed-roster-first, and opt-in; do not add a scheduler or standing role.
+- [x] Separate Beads operational state from durable project evidence; link by exact task ID without mirroring the backlog or its dependency graph.
+- [x] Implement typed Beads v0.49.6 SQLite tools: create, exact get, combined lexical/structured query, update, guarded close/reopen, dependency management, ready/blocked views. No task deletion or generic executor.
+- [x] Test against real disposable Beads databases: closed lookup/query scope, combined filters, planned dependency release, closure after integration/evidence, refusal of an optional drop that would release required work, no fallback on a missing database.
+- [x] Add managed project-state initialization, serialized atomic writes, expected revision checks, and durable operation receipts. Keep historical snapshots readable; legacy `advance` is dry-run only.
+- [x] Record issued revisions, READY, launch reservations, Pi run references, outcome/termination, effect reconciliation, results, decisions, and availability. Implement exact retrieval and transitive invalidation on supersession. Store facts separately from Lead assertions.
+- [x] Test stale/op-ID replay, concurrent reservations, interruption before and after dispatch (simulated observations), hard cutoff vs termination, wrong/late results, real Git checkpoint, and superseded evidence.
+- [x] Exercise pinned Pi startup with disposable project bindings: nine tools present in the bound Lead session, absent for an unbound session and an inherited child environment. Verify with the SDK that none appears in the callable-tool registry used by `codemode`. The probes only run from test fixtures; actual child confinement is still open.
+
+## 2. Main-session lifecycle and onboarding
+
+- [x] Implement phase-bound gate review and guarded routes, separate protocol/readiness approvals, no-verdict HOLD, bounded review recovery, cycle authorization/charging, terminal stop vs completed report, and cap/stagnation predicates.
+- [x] Exercise project initialization through final report with simulated reviews, including final-cycle achievement and stale manifest refusal.
+- [x] Add project bootstrap and launcher with explicit SQLite binding, static preflight, and hash-checked operator observations for deployment opt-in. Keep static checks distinguishable from the effective runtime roster.
+- [x] Implement manifest hashing, verdict validation, manifest drift review, freshness flags, and OKF gate precheck using existing validators.
+- [x] Align the Lead/Worker prompts, bootstrap artifact layout, blueprint implementation pointers, and operations runbook. Verify a fresh bootstrap in an isolated repository.
+- [x] Add §12.4 fixture regressions: final-cycle report, in-plan repair vs forbidden replan at the cap, `block` precedence, malformed review with bounded recovery, stale review replacement, and independent work during another assignment's recovery.
+- [ ] Add formal schema validation across managed snapshots and broader §12.4 fault coverage (readiness reuse/drift and real persisted runtime artifacts).
+
+## 3. Execution and deployment verification
+
+- [ ] In the selected deployment, verify the pinned versions, trust scope, discovery and exclusions, exact provider/model and override source for all seven fixed roles, tool exposure (including indirect calls), fresh context, and response schema behavior. Capture actual smoke-run and inspection artifacts per role.
+- [ ] Verify durable dispatch correlation, process exit, and workspace/external effects against real Pi runs. Test host interruption before launch, after launch before recording run ID, after writes, and after integration but before Beads closure. Leave uncertain launches blocked rather than retrying blindly.
+- [ ] Verify per-package file/command/network confinement and Worker → architect-only nesting with direct and `codemode` probes. Prompt allowances and an exposure unit test are not OS sandboxing. Do not enable production delegation while these checks are missing.
+- [x] Add a pool-profile comparison check and fixture tests for model drift and indirect delegation. It compares supplied effective capability records; it does not resolve profiles or verify their confinement.
+- [ ] Run a single-writer Worker pilot followed by an operator-approved read-only pool pilot. Validate actual resolved profiles, ambiguity refusal, and failure isolation against real launch evidence. Add concurrency only after the single-writer path and required confinement tests pass.
+
+## 4. Scientific evaluation and reporting
+
+- [x] Implement a deterministic reference paired analysis with frozen input hashes, raw CSV and config provenance, seeded uncertainty, limits, and a clearly labeled draft output. Verify with constructed observations; do not report these as an empirical result about models.
+- [ ] Choose a Director-authorized real research question, data, experimental budget, and baselines. Preserve raw observations, split development from confirmatory evidence, retain null/negative results, and trace reviewed claims through the final manifest.
+- [ ] Evaluate system variants, repeated runs, quality of consultations, and cost/latency against the §12 rubric. A gate approval is a review outcome, not scientific proof.
+
+## 5. Deployment recovery and budgets
+
+- [x] Implement local cycle, inner-attempt, review and assignment attempt accounting; distinguish late or unusable output from observed process exit.
+- [ ] Verify external quotas and spending coverage on the approved compute/provider setup. Add context/usage accounting and evaluate decision reuse without weakening freshness or review authority.
+- [x] Document the deployment sequence, evidence needed for recovery, and the procedure for a missing Beads close. Documentation does not prove execution correlation.
+- [ ] Run and revise the incident runbook against the pinned live environment; capture a recovery report and objective exit evidence.
+
+**Local verification:** 30 research-ops Python tests, 14 existing OKF validator tests, 2 native Beads integration tests, strict TypeScript compilation, and diff whitespace checks passed. The Python suite includes a real Pi CLI/SDK exposure probe and real Git integration; execution and gate observations remain fixture data.
+
+**Next:** (1) verify the operator's model and confinement setup in a disposable deployment, (2) perform the single-writer and pool launch/recovery probes, (3) run a Director-authorized research pilot and record scientific and resource outcomes.
