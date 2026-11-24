@@ -12,6 +12,10 @@ import unittest
 
 from analyze import analyze, draft
 from checks import coverage, freshness, manifest, pool_profile
+import director
+from gate_artifacts import ROLES
+import gate_checkpoints
+from gates import check_manifest, check_submission
 from knowledge import HUB, hub_fingerprint, required as requires_okf
 from readiness import source_diff
 from task_readiness import DIMENSIONS, TRIGGERS
@@ -57,7 +61,57 @@ class ManagedTests(unittest.TestCase):
         return out
 
     def lifecycle(self, action, body=None, valid=True):
-        return self.apply(action, body or {}, group='lifecycle', valid=valid)
+        body = body or {}
+        if valid and action in ('resolve-hold', 'resolve-gate-hold'):
+            state = json.loads(self.state.read_text())
+            pending = (gate_checkpoints.pending_hold(state) if action == 'resolve-hold' else body.get('id'))
+            if pending and state['gate_reviews'].get(pending, {}).get('checkpoint_pending'):
+                self.lifecycle(gate_checkpoints.HOLD, {'id': pending})
+        if valid and action in gate_checkpoints.ACTIONS:
+            args = self.args('lifecycle', action)
+            args, body = self.route_commit(args, body)
+            out = self.call(*args, body=body)
+            self.rev = out['revision']
+            return out
+        return self.apply(action, body, group='lifecycle', valid=valid)
+
+    def route_commit(self, args, body, *, update_okf=True, omit=()):
+        state = json.loads(self.state.read_text())
+        action, op = args[3], args[args.index('--op-id') + 1]
+        payload = body.copy()
+        if action == gate_checkpoints.START:
+            charter = self.root / payload['charter_ref']
+            if not charter.exists():
+                self.fixture_file(payload['charter_ref'], 'fixture active charter\n')
+        review = state['gate_reviews'].get(payload.get('review_id' if action == gate_checkpoints.REUSE else 'id'))
+        package = payload.get('manifest') if action == gate_checkpoints.REUSE else (review['manifest'] if review else None)
+        paths = [self.state.name]
+        if action == gate_checkpoints.START:
+            paths.append(payload['charter_ref'])
+        if action == gate_checkpoints.ROUTE and review['phase'] == 'cycle':
+            payload.setdefault('rationale', 'fixture selected route rationale')
+        if action != gate_checkpoints.HOLD and package:
+            paths.extend(package['artifact_roles'].values())
+            if package['phase'] == 'readiness':
+                paths.extend(package['readiness']['baseline'])
+                paths.extend(t['output'] for t in package['readiness']['tests'].values())
+        if action == gate_checkpoints.REUSE:
+            paths += [payload['proof']['diff'], *payload['proof']['unchanged'].values()]
+        if payload.get('route') == 'stop':
+            paths.append(payload['status_report'])
+        info = gate_checkpoints.envelope(state, action, payload, op, self.root)
+        self.fixture_file(info['decision_path'], info['decision'])
+        paths.append(info['decision_path'])
+        if update_okf and action != gate_checkpoints.HOLD and package and (requires_okf(package) or payload.get('okf_check')):
+            receipt = self.check_okf(package)
+            payload['okf_check'] = receipt['op_id']
+            paths += [HUB, *receipt['service_artifacts']]
+        if not (self.root / '.git').exists():
+            self.git('init', '-q')
+        self.git('add', '-A', '--', *sorted(set(paths) - set(omit)))
+        self.git('commit', '-qm', info['git_subject'])
+        payload['checkpoint'] = self.git('rev-parse', 'HEAD')
+        return args[:-1] + (str(self.rev),), payload
 
     def get(self, key):
         return self.call('get', self.state, key)['record']
@@ -255,7 +309,7 @@ class ManagedTests(unittest.TestCase):
         self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
         target = {'gate': 'PLAN_GATE', 'phase': 'protocol'}
         assessment = self.apply('assess-task', self.assessing('gate', triggers=['stage-review-gate'], gate=target))['op_id']
-        manifest = {**target, 'id': 'real-review@v1', 'artifacts': self.hashes, 'required_tests': ['unit']}
+        manifest = self.gate_manifest('protocol', 'real-review')
         request = self.advisor_request(assessment, 'gate', manifest=manifest)
         prepass = self.lifecycle('reserve-consultation', {**request, 'pass': 'evidence-first'})['op_id']
         self.settle_advisor(prepass, 'run-first-pass')
@@ -301,13 +355,16 @@ class ManagedTests(unittest.TestCase):
         self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
         target = {'gate': 'PLAN_GATE', 'phase': 'protocol'}
         key = self.apply('assess-task', self.assessing('gate', triggers=['stage-review-gate'], gate=target))['op_id']
-        manifest = {**target, 'id': 'uncounted@v1', 'artifacts': self.hashes, 'required_tests': ['unit']}
+        manifest = self.gate_manifest('protocol', 'uncounted')
         attempt = self.lifecycle('reserve-consultation', self.advisor_request(key, 'gate', manifest=manifest))['op_id']
         self.settle_advisor(attempt, 'run-uncounted', tokens=None)
         review = self.review('protocol', 'uncounted', assessment_id=key, attempt_id=attempt, route=None)
         self.assertEqual(review['verdict'], 'none')
-        self.assertEqual(self.call('status', self.state)['status'], 'hold')
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+        self.assertEqual(self.call('status', self.state)['gate_holds'][0]['id'], 'uncounted')
         self.lifecycle('gate-route', {'id': 'uncounted', 'route': 'continue'}, valid=False)
+        self.lifecycle('gate-review', {'id': 'same-gate-retry', 'gate': 'PLAN_GATE', 'phase': 'protocol'}, valid=False)
+        self.resolve_gate_hold('uncounted')
 
     def test_limits_preserve_actual_overrun_and_need_new_pinned_operator_decision(self):
         policy = self.advisor_policy(exploratory=2)
@@ -388,6 +445,38 @@ class ManagedTests(unittest.TestCase):
         self.assertEqual(sorted(codes), [0, 1])
         self.assertEqual(len(self.call('status', self.state)['execution']['open_attempts']), 1)
 
+    def test_partial_and_unrun_worker_checks_cannot_be_accepted(self):
+        self.git('init', '-q')
+        self.git('add', 'artifact.txt')
+        self.git('commit', '-qm', 'base')
+        base = self.git('rev-parse', 'HEAD')
+        brief = self.brief_payload('claims-unrun', mode='write', base=base)
+        brief['assessment_id'] = self.apply('assess-task', self.assessment('claims-unrun'))['op_id']
+        self.apply('issue', brief)
+        self.apply('mark-ready', {'id': brief['id'], 'basis': 'fixture write assessment'})
+        for attempt_id, result_id, status in (('partial-attempt', 'partial-result', 'PARTIAL'),
+                                               ('unrun-attempt', 'unrun-result', 'SUCCESS')):
+            self.apply('reserve', {'id': attempt_id, 'revision_id': brief['id'], 'profile_ref': 'fixture',
+                                   'workspace': str(self.root)})
+            self.apply('attach-run', {'id': attempt_id, 'run_id': f'run-{attempt_id}', 'evidence': 'fixture launch'})
+            self.apply('observe-termination', {'id': attempt_id, 'evidence': 'fixture exit observed'})
+            self.apply('reconcile-effects', {'id': attempt_id, 'disposition': 'clean', 'evidence': 'fixture clean workspace'})
+            result = {'id': result_id, 'assignment_id': brief['assignment_id'], 'revision_id': brief['id'],
+                      'attempt_id': attempt_id, 'status': status, 'source_versions': brief['source_versions'],
+                      'deliverable': 'artifact.txt', 'evidence_refs': ['artifact.txt'], 'gaps': ['fixture incomplete'],
+                      'affected_paths': {}, 'deviations': [], 'follow_ups': [],
+                      'verification': {'git diff --check': {'not_run': 'fixture child did not return the check'}}}
+            self.apply('result', result)
+            accepted = self.apply('decision', {'id': f'accepted-{attempt_id}', 'attempt_id': attempt_id,
+                                               'result_id': result_id, 'verdict': 'accepted',
+                                               'rationale': 'fixture falsification probe'}, valid=False)
+            expected = ('timely SUCCESS' if status == 'PARTIAL' else 'verification failed or was not run')
+            self.assertIn(expected, accepted['refused'])
+            rejected = self.apply('decision', {'id': f'rejected-{attempt_id}', 'attempt_id': attempt_id,
+                                               'result_id': result_id, 'verdict': 'rejected',
+                                               'rationale': 'unrun verification is not evidence'})
+            self.assertEqual(self.get(f'rejected-{attempt_id}')['verdict'], 'rejected')
+
     def test_write_acceptance_is_not_integration_or_task_closure(self):
         self.git('init', '-q')
         self.git('add', 'artifact.txt')
@@ -437,15 +526,61 @@ class ManagedTests(unittest.TestCase):
         self.assertEqual(self.call('status', self.state)['execution']['revalidate'], ['R-B', 'gate-42'])
         self.call('check-close', self.state, 'pilot-B', 'D-B', 'accepted', valid=False)
 
+    def fixture_file(self, relative, data):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(data if isinstance(data, str) else json.dumps(data))
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def gate_manifest(self, phase, slug, *, route=None, extra=None):
+        if phase == 'readiness':
+            return self.readiness_manifest(slug) | (extra or {})
+        phase_data = self.gate_evidence(phase, slug, route=route, extra=extra)
+        gate = {'protocol': 'PLAN_GATE', 'complete': 'INNER_EXIT_GATE', 'diagnosis': 'INNER_EXIT_GATE',
+                'cycle': 'CYCLE_GATE', 'report': 'REPORT_GATE'}[phase]
+        base = {'gate': gate, 'phase': phase, 'id': f'{slug}@v1'}
+        if phase == 'protocol':
+            base['required_tests'] = ['unit']
+        return base | phase_data | (extra or {})
+
+    def gate_evidence(self, phase, slug, *, route=None, extra=None):
+        artifacts, roles = self.hashes.copy(), {}
+        for role in ROLES[phase]:
+            path = 'charter.md' if role == 'charter' else f'gate-evidence/{phase}/{role}.md'
+            roles[role] = path
+            if role not in ('final-manifest', 'verification', 'cycle-decision'):
+                artifacts[path] = self.fixture_file(path, f'fixture {phase} evidence: {role}\n')
+        meta = {}
+        if phase == 'diagnosis':
+            meta['diagnosis'] = {'reason': 'requires-plan-change', 'gaps': ['no valid treatment results'],
+                                 'rationale': 'fixture protocol cannot test the treatment'}
+        elif phase == 'cycle':
+            lc = json.loads(self.state.read_text())['lifecycle']
+            route = (extra or {}).get('proposed_route', route if route in ('replan', 'report', 'stop') else 'hold')
+            meta['proposed_route'] = route
+            meta.update({k: extra[k] for k in ('next_plan', 'replan_rationale') if extra and k in extra})
+            path = roles['cycle-decision'] = f'gate-evidence/cycle/{slug}-cycle-decision.json'
+            artifacts[path] = self.fixture_file(path, {'id': slug, 'cycle': lc['outer_cycle'],
+                'plan_version': lc['plan_version'], 'rationale': 'fixture cycle decision', 'evidence_refs': ['artifact.txt'], **meta})
+        elif phase == 'report':
+            pins = {path: artifacts[path] for role, path in roles.items() if role not in ('final-manifest', 'verification')}
+            path = roles['final-manifest'] = 'gate-evidence/report/final-artifact-manifest.json'
+            artifacts[path] = self.fixture_file(path, {'artifacts': pins | self.hashes})
+            path = roles['verification'] = 'gate-evidence/report/independent-verification.json'
+            artifacts[path] = self.fixture_file(path, {'verifier': 'fixture-only', 'method': 'fixture inspection',
+                'artifacts': pins | {roles['final-manifest']: artifacts[roles['final-manifest']]}})
+        return {'artifacts': artifacts, 'artifact_roles': roles, **meta}
+
     def readiness_manifest(self, slug):
         protocol = next(key for key, record in reversed(self.call('show', 'gate_reviews', self.state).items())
                         if record['phase'] == 'protocol' and record['route'] == 'continue')
         output = self.root / f'{slug}-tests.log'
         output.write_text(f'fixture test observations for {slug}\n')
         baseline = self.root / 'src/method.py'
-        artifacts = self.hashes | {p.relative_to(self.root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-                                   for p in (output, baseline)}
-        return {'id': f'{slug}@v1', 'gate': 'PLAN_GATE', 'phase': 'readiness', 'artifacts': artifacts,
+        evidence = self.gate_evidence('readiness', slug)
+        evidence['artifacts'].update({p.relative_to(self.root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                                      for p in (output, baseline)})
+        return {'id': f'{slug}@v1', 'gate': 'PLAN_GATE', 'phase': 'readiness', **evidence,
                 'readiness': {'revision': self.git('rev-parse', 'HEAD'), 'protocol_review': protocol,
                               'baseline': ['src/method.py'], 'tests': {'unit': {'exit_code': 0, 'output': output.name}}}}
 
@@ -477,25 +612,76 @@ class ManagedTests(unittest.TestCase):
     def publish_okf(self, request):
         return self.lifecycle('publish-okf', {'request_id': request['op_id']})
 
-    def check_okf(self, manifest, *, publication=None, valid=True):
+    def stage_director_documents(self, request, *decision_ids, index_decisions=True):
+        state = json.loads(self.state.read_text())
+        stage = self.root / request['staging']
+        index = stage / 'index.md'
+        links = index.read_text()
+        brief_link = '- [Director brief](director-brief.md)\n'
+        if brief_link not in links:
+            links += brief_link
+        replacements = {'director-brief.md': '---\ntype: director-brief\n---\n# Standing brief\n' + director.brief_marker(state) + '\n'}
+        for key in decision_ids:
+            name = director.path_for(key)
+            link = f'- [Decision {key}]({name})\n'
+            if index_decisions and link not in links:
+                links += link
+            elif not index_decisions:
+                links = links.replace(link, '')
+            replacements['director-brief.md'] += link
+            replacements[name] = ('---\ntype: director-decision\n---\n# Decision fixture\n' +
+                                  director.marker(director.get(state, key)) + '\n')
+        replacements['index.md'] = links
+        created, updated = [], []
+        for name, data in replacements.items():
+            path = stage / name
+            if not path.exists():
+                created.append(name)
+            elif path.read_text() == data:
+                continue
+            else:
+                updated.append(name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(data)
+        return {'created': created, 'updated': updated}
+
+    def publish_director(self, *keys, index_decisions=True):
+        request = self.begin_okf('index.md', 'director-brief.md', *(director.path_for(key) for key in keys))
+        self.prepare_okf(request, **self.stage_director_documents(request, *keys, index_decisions=index_decisions))
+        return self.publish_okf(request)['op_id']
+
+    def check_okf(self, manifest, *, publication=None, valid=True, reader_status=None,
+                  reader_evidence=True, reader_snapshot=True):
         if publication is None:
-            request = self.begin_okf()
-            self.prepare_okf(request)
+            if manifest['phase'] in ('cycle', 'report'):
+                request = self.begin_okf('index.md', 'director-brief.md')
+                self.prepare_okf(request, **self.stage_director_documents(request))
+            else:
+                request = self.begin_okf()
+                self.prepare_okf(request)
             publication = self.publish_okf(request)
-        return self.lifecycle('check-okf-gate', {'manifest': manifest, 'writer_result': publication['writer_result'],
-                              'publication_id': publication['op_id'], 'hub_sha256': hub_fingerprint(self.root),
-                              'service_artifacts': publication['writer_artifacts']}, valid=valid)
+        writer = publication['writer_result']
+        service_artifacts = {writer: publication['writer_artifacts'][writer]}
+        body = {'manifest': manifest, 'writer_result': writer, 'publication_id': publication['op_id'],
+                'hub_sha256': hub_fingerprint(self.root), 'service_artifacts': service_artifacts}
+        if reader_status is not None:
+            reader = self.root / f'reader-{self.op + 1}.json'
+            index = self.root / HUB / 'index.md'
+            payload = {'status': reader_status, 'answer': 'Fixture evidence packet',
+                       'evidence': ([{'conceptPath': 'note.md', 'support': 'Fixture primary concept evidence',
+                                      'rationale': 'Directly supports the requested retrieval.'}] if reader_evidence else []),
+                       'gaps': [], 'search': {'scope': 'fixture bundle', 'queries': ['fixture'],
+                          'searched_paths': ['note.md'], 'excluded': [], 'truncated': False, 'stop_reason': 'fixture scope exhausted'},
+                       'revision': {'state': 'fixture', **({'bundle_sha256': hub_fingerprint(self.root)} if reader_snapshot else {})}}
+            reader.write_text(json.dumps(payload))
+            body.update(reader_result=reader.name)
+            body['service_artifacts'][reader.name] = hashlib.sha256(reader.read_bytes()).hexdigest()
+        return self.lifecycle('check-okf-gate', body, valid=valid)
 
     def review(self, phase, slug, *, verdict='approve', route='continue', extra=None, valid=True, check_okf=True,
-               assessment_id=None, attempt_id=None, run_id=None):
-        gate = {'protocol':'PLAN_GATE', 'readiness':'PLAN_GATE', 'complete':'INNER_EXIT_GATE', 'diagnosis':'INNER_EXIT_GATE',
-                'cycle':'CYCLE_GATE', 'report':'REPORT_GATE'}[phase]
-        m = {'gate': gate, 'phase': phase, 'id': f'{slug}@v1', 'artifacts': self.hashes}
-        if phase == 'protocol':
-            m['required_tests'] = ['unit']
-        elif phase == 'readiness':
-            m = self.readiness_manifest(slug)
-        m.update(extra or {})
+               assessment_id=None, attempt_id=None, run_id=None, failure=None):
+        m = self.gate_manifest(phase, slug, route=route, extra=extra)
+        gate = m['gate']
         output = {'gate': gate, 'review_target': m['id'], 'verdict': verdict, 'summary': 'synthetic review fixture',
                   'findings': [], 'alternative_explanations': [], 'residual_uncertainties': [],
                   'recommended_next_actions': [], 'additional_evidence_required': []}
@@ -505,13 +691,15 @@ class ManagedTests(unittest.TestCase):
         if verdict == 'inconclusive':
             output['additional_evidence_required'] = ['fixture']
         payload = {'id': slug, 'gate': gate, 'phase': phase, 'manifest': m,
-                   'advisor_run_id': run_id or f'run-{slug}', 'verdict': output}
+                   'advisor_run_id': None if failure else (run_id or f'run-{slug}'), 'verdict': output}
+        if failure:
+            payload['failure'] = failure
         if assessment_id:
             payload['assessment_id'] = assessment_id
         if attempt_id:
             payload['attempt_id'] = attempt_id
         if valid and check_okf and requires_okf(m):
-            payload['okf_check'] = self.check_okf(m)['op_id']
+            payload['okf_check'] = self.check_okf(m, reader_status='sufficient' if m.get('okf_reader_required') else None)['op_id']
         out = self.lifecycle('gate-review', payload, valid=valid)
         if route and valid:
             self.lifecycle('gate-route', {'id': slug, 'route': route})
@@ -667,8 +855,8 @@ class ManagedTests(unittest.TestCase):
             info = self.readiness_manifest(name)['readiness'] | changes
             result = self.review('readiness', name, extra={'readiness': info}, route=None)
             self.assertEqual(result['verdict'], 'none')
-            self.assertEqual(self.call('status', self.state)['status'], 'hold')
-            self.lifecycle('resolve-hold', {'resolution': 'fixture: corrected submission'})
+            self.assertEqual(self.call('status', self.state)['status'], 'active')
+            self.resolve_gate_hold(name, 'fixture: corrected submission')
         # The bounded no-verdict limit is not expanded by bad readiness evidence.
         self.review('readiness', 'exhausted', valid=False)
 
@@ -690,6 +878,10 @@ class ManagedTests(unittest.TestCase):
         params = {'review_id': 'ready', 'manifest': candidate, 'proof': proof}
         self.lifecycle('reuse-readiness', {**params, 'proof': {'diff': diff.name}}, valid=False)
         self.lifecycle('reuse-readiness', {**params, 'proof': {**proof, 'diff': 'artifact.txt'}}, valid=False)
+        candidate['artifacts']['different-data.md'] = self.fixture_file('different-data.md', 'changed dataset contents')
+        rebound = {**candidate, 'artifact_roles': {**candidate['artifact_roles'], 'dataset-manifest': 'different-data.md'}}
+        failure = self.lifecycle('reuse-readiness', {**params, 'manifest': rebound}, valid=False)
+        self.assertIn('reviewed package roles', failure['refused'])
         self.lifecycle('reuse-readiness', params)
         self.assertEqual(self.call('status', self.state)['gate_flags'], [])
         self.assertEqual(self.get('ready')['manifest'], original)  # Reuse does not forge a new Advisor verdict.
@@ -712,16 +904,17 @@ class ManagedTests(unittest.TestCase):
 
     def test_required_okf_result_is_checked_and_pinned_to_the_review_target(self):
         self.open_cycle('1', initial=True)
-        manifest = {'id': 'precheck@v1', 'gate': 'CYCLE_GATE', 'phase': 'cycle', 'artifacts': self.hashes}
-        request = self.begin_okf()
-        self.prepare_okf(request, writer_bytes=b'{', valid=False)
-        self.prepare_okf(request)
+        manifest = self.gate_manifest('cycle', 'precheck')
+        request = self.begin_okf('index.md', 'director-brief.md')
+        staged = self.stage_director_documents(request)
+        self.prepare_okf(request, **staged, writer_bytes=b'{', valid=False)
+        self.prepare_okf(request, **staged)
         publication = self.publish_okf(request)
         self.check_okf({**manifest, 'okf_reader_required': True}, publication=publication, valid=False)
         result = self.review('cycle', 'missing-check', route=None, check_okf=False)
         self.assertEqual(result['verdict'], 'none')
-        self.assertEqual(self.call('status', self.state)['status'], 'hold')
-        self.lifecycle('resolve-hold', {'resolution': 'fixture: fresh valid OKF evidence'})
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+        self.resolve_gate_hold('missing-check', 'fixture: fresh valid OKF evidence')
         self.review('cycle', 'ready-check', route=None)
         check = self.get('ready-check')['okf_check']
         other = self.check_okf(manifest, publication=self.get(self.get(check)['publication_id']))['op_id']
@@ -729,6 +922,33 @@ class ManagedTests(unittest.TestCase):
         self.lifecycle('gate-route', {'id': 'ready-check', 'route': 'hold', 'reason': 'fixture', 'okf_check': other},
                        valid=False)
         self.lifecycle('gate-route', {'id': 'ready-check', 'route': 'hold', 'reason': 'fixture'})
+
+    def test_required_reader_must_be_sufficient_nonempty_and_snapshot_bound(self):
+        self.open_cycle('reader-evidence', initial=True)
+        manifest = self.gate_manifest('cycle', 'reader-evidence') | {'okf_reader_required': True}
+        partial = self.check_okf(manifest, reader_status='partial', valid=False)
+        self.assertIn('sufficient primary evidence', partial['refused'])
+        empty = self.check_okf(manifest, reader_status='sufficient', reader_evidence=False, valid=False)
+        self.assertIn('sufficient primary evidence', empty['refused'])
+        stale = self.check_okf(manifest, reader_status='sufficient', reader_snapshot=False, valid=False)
+        self.assertIn('different or unspecified hub snapshot', stale['refused'])
+        accepted = self.check_okf(manifest, reader_status='sufficient')
+        self.assertTrue(accepted['launch_eligible'] is False)
+        self.assertTrue(self.get(accepted['op_id'])['reader_checked'])
+
+    def test_mutated_reader_result_invalidates_cycle_gate_receipt(self):
+        self.open_cycle('reader-stale', initial=True)
+        self.review('cycle', 'reader-review', route=None, extra={'okf_reader_required': True})
+        check = self.get('reader-review')['okf_check']
+        receipt = self.get(check)
+        publication = self.get(receipt['publication_id'])
+        reader = next(path for path in receipt['service_artifacts'] if path != publication['writer_result'])
+        result = self.root / reader
+        before = result.read_bytes()
+        result.write_bytes(before + b' ')
+        rejected = self.lifecycle('gate-route', {'id': 'reader-review', 'route': 'hold', 'reason': 'fixture'}, valid=False)
+        self.assertIn('artifact drift', rejected['refused'])
+        result.write_bytes(before)
 
     def test_changed_okf_hub_and_service_result_require_a_fresh_gate_check(self):
         self.open_cycle('1', initial=True)
@@ -748,7 +968,9 @@ class ManagedTests(unittest.TestCase):
         writer.write_bytes(content)
         refreshed = self.check_okf(manifest, publication=publication)['op_id']
         self.lifecycle('gate-route', {**params, 'okf_check': refreshed})
-        self.assertEqual(self.get('cycle-review')['routed_okf_check'], refreshed)
+        routed = self.get('cycle-review')['routed_okf_check']
+        self.assertNotEqual(routed, refreshed)  # The resolved decision adds machine JSON to the verified hub.
+        self.assertEqual(self.get(routed)['checked_manifest'], self.get(refreshed)['checked_manifest'])
 
     def test_okf_only_one_pending_request_and_abort_never_lifts_hold(self):
         self.seed_okf()
@@ -783,6 +1005,12 @@ class ManagedTests(unittest.TestCase):
         self.prepare_okf(request, valid=False)
         (stage / 'escape').unlink()
         self.prepare_okf(request, updated=['note.md'], valid=False)  # No diff, so the envelope is inaccurate.
+        before = hub_fingerprint(self.root)
+        review_needed = {'status': 'needs_review', 'created': [], 'updated': [], 'deprecated': [],
+                         'evidence': ['fixture ambiguity'], 'validation': [], 'warnings': [],
+                         'revision': {'state': 'staged only', 'git_commit_made': False}}
+        self.prepare_okf(request, writer_bytes=json.dumps(review_needed).encode(), valid=False)
+        self.assertEqual(before, hub_fingerprint(self.root))
         self.prepare_okf(request)
         self.publish_okf(request)
         (hub / 'note.md').write_text('unmanaged edit\n')
@@ -864,7 +1092,7 @@ sys.exit(ledger.main())
         view = self.call('status', self.state)
         self.assertEqual((view['stage'], view['cycles_used'], view['cycles_remaining']), ('SCOPING', 0, 3))
 
-        args = self.args('lifecycle', 'start-planning')
+        args, payload = self.route_commit(self.args('lifecycle', 'start-planning'), payload)
         receipt = self.call(*args, body=payload)
         self.rev = receipt['revision']
         self.assertEqual(receipt['charged_cycle'], 1)
@@ -895,9 +1123,13 @@ sys.exit(ledger.main())
                 self.review('cycle', f'cycle-{cycle}', route=None,
                             extra={'proposed_route': 'replan', 'next_plan': f'v{cycle + 1}', 'replan_rationale': 'new lever'})
                 payload = {'id': f'cycle-{cycle}', 'route': 'replan'}
-                args = self.args('lifecycle', 'gate-route')
+                args, payload = self.route_commit(self.args('lifecycle', 'gate-route'), payload)
                 out = self.call(*args, body=payload)
                 self.rev = out['revision']
+                selected = json.loads(self.git('show', f"{out['checkpoint']}:{out['decision_path']}"))
+                self.assertEqual((selected['selected_route'], selected['resulting_cycle'], selected['charged_cycles']),
+                                 ('replan', cycle + 1, 1))
+                self.assertEqual(selected['manifest_id'], f'cycle-{cycle}@v1')
                 self.assertTrue(self.call(*args, body=payload)['replayed'])
                 self.lifecycle('gate-route', payload, valid=False)
             else:
@@ -906,6 +1138,344 @@ sys.exit(ledger.main())
         self.review('report', 'final-report', route='complete')
         view = self.call('status', self.state)
         self.assertEqual((view['outer_cycle'], view['cycles_used'], view['stage']), (3, 3, 'COMPLETED'))
+
+    def test_plan_change_draft_does_not_charge_and_approved_replan_charges_once(self):
+        self.open_cycle('draft', initial=True)
+        self.lifecycle('progress', {'verdict': 'marginal', 'credible_lever': True, 'evidence_refs': ['artifact.txt']})
+        before = self.call('status', self.state)
+        self.review('cycle', 'draft-revision', verdict='revise', route='remediate-plan')
+        mid = self.call('status', self.state)
+        self.assertEqual((mid['outer_cycle'], mid['cycles_used'], mid['stage']), (before['outer_cycle'], before['cycles_used'], 'ANALYZING'))
+        self.review('cycle', 'draft-approval', extra={'proposed_route': 'replan', 'next_plan': 'v2',
+                                                       'replan_rationale': 'fixture plan repair'}, route='replan')
+        after = self.call('status', self.state)
+        self.assertEqual((after['outer_cycle'], after['cycles_used'], after['stage']), (2, before['cycles_used'] + 1, 'PLANNING'))
+
+    def test_untagged_director_message_is_refused_and_fyi_never_holds(self):
+        untagged = {'id': 'UNTAGGED', 'delivery': 'sent', 'artifacts': self.hashes, 'summary': 'missing tag',
+                    'next_step': 'Lead asks for a tag'}
+        self.lifecycle(director.MESSAGE, untagged, valid=False)
+        self.lifecycle(director.MESSAGE, {'id': 'F-NOHOLD', 'tag': 'FYI', 'summary': 'Fixture FYI',
+                       'next_step': 'Lead continues', 'delivery': 'sent', 'artifacts': self.hashes})
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+        self.assertEqual(self.get('F-NOHOLD')['status'], 'closed')
+
+    def test_wrong_assignment_or_revision_ids_cannot_complete(self):
+        revision = self.brief('ids')
+        self.apply('reserve', {'id': 'T-ids', 'revision_id': revision, 'profile_ref': 'fixture'})
+        self.apply('attach-run', {'id': 'T-ids', 'run_id': 'run-ids', 'evidence': 'fixture launch'})
+        self.apply('observe-termination', {'id': 'T-ids', 'evidence': 'fixture exit'})
+        bad = {'id': 'S-wrong', 'assignment_id': 'A-other', 'revision_id': revision, 'attempt_id': 'T-ids',
+               'status': 'SUCCESS', 'deliverable': 'artifact.txt', 'evidence_refs': ['artifact.txt'], 'gaps': [],
+               'source_versions': {'input': 'v1'}}
+        self.apply('result', bad, valid=False)
+        bad = {**bad, 'assignment_id': 'A-ids', 'revision_id': 'R-other'}
+        self.apply('result', bad, valid=False)
+
+    def resolve_gate_hold(self, key, resolution='fixture triage complete', artifacts=None):
+        return self.lifecycle('resolve-gate-hold', {'id': key, 'resolution': resolution,
+                                                    'artifacts': artifacts or self.hashes})
+
+    def begin_early_stagnation(self, slug):
+        self.open_cycle(f'{slug}-1', initial=True)
+        self.lifecycle('progress', {'verdict': 'stalled', 'credible_lever': False, 'evidence_refs': ['artifact.txt']})
+        self.review('cycle', f'{slug}-replan', route='replan', extra={'proposed_route': 'replan', 'next_plan': 'v2',
+                                                    'replan_rationale': 'fixture alternate lever'})
+        self.open_cycle(f'{slug}-2')
+        self.lifecycle('progress', {'verdict': 'regressed', 'credible_lever': False, 'evidence_refs': ['artifact.txt']})
+        self.assertTrue(self.call('termination-check', self.state)['predicates']['early_stagnation'])
+
+    def test_early_stagnation_requires_stop_unless_achievement_is_reportable(self):
+        self.begin_early_stagnation('stop')
+        self.review('cycle', 'stagnation-stop', route=None, extra={'proposed_route': 'stop'})
+        report = 'reports/stagnation-status.md'
+        self.fixture_file(report, 'Fixture status: evidence remains incomplete.\\n')
+        args, payload = self.route_commit(self.args('lifecycle', 'gate-route'),
+                                         {'id': 'stagnation-stop', 'route': 'stop', 'status_report': report})
+        stopped = self.call(*args, body=payload)
+        self.rev = stopped['revision']
+        status = self.call('status', self.state)
+        self.assertEqual((status['status'], status['stage'], status['cycles_used']), ('suspended', 'ANALYZING', 2))
+
+
+    def test_early_stagnation_with_achievement_still_routes_to_report(self):
+        self.begin_early_stagnation('achieve')
+        self.lifecycle('objective', {'id': 'O-1', 'status': 'met', 'evidence_refs': ['artifact.txt']})
+        self.review('cycle', 'stagnation-achievement', extra={'proposed_route': 'report'}, route='report')
+        self.assertEqual(self.call('status', self.state)['stage'], 'REPORTING')
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+
+    def test_inconclusive_cycle_gets_one_evidence_recheck_then_stays_held(self):
+        self.open_cycle('inconclusive', initial=True)
+        self.lifecycle('progress', {'verdict': 'marginal', 'credible_lever': True, 'evidence_refs': ['artifact.txt']})
+        self.review('cycle', 'inconclusive-one', verdict='inconclusive', route='gather-evidence')
+        self.review('cycle', 'inconclusive-two', verdict='inconclusive', route=None)
+        args, payload = self.route_commit(self.args('lifecycle', 'gate-route'),
+                                         {'id': 'inconclusive-two', 'route': 'hold', 'reason': 'second review unresolved'})
+        self.call(*args, body=payload)
+        self.rev = json.loads(self.state.read_text())['revision']
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+        self.resolve_gate_hold('inconclusive-two', 'evidence retry exhausted')
+        retry = self.review('cycle', 'inconclusive-three', verdict='inconclusive', route=None, valid=False)
+        self.assertIn('bounded inconclusive re-review exhausted', retry['refused'])
+
+    def test_replan_saved_before_lost_ack_replays_without_double_charge(self):
+        self.open_cycle('lost-ack', initial=True)
+        self.lifecycle('progress', {'verdict': 'advanced', 'credible_lever': True, 'evidence_refs': ['artifact.txt']})
+        self.review('cycle', 'lost-ack-review', route=None,
+                    extra={'proposed_route': 'replan', 'next_plan': 'v2', 'replan_rationale': 'fixture cycle repair'})
+        args, payload = self.route_commit(self.args('lifecycle', 'gate-route'),
+                                         {'id': 'lost-ack-review', 'route': 'replan'})
+        proc = subprocess.run([sys.executable, '-B', '-c', '''
+import builtins, os, sys
+sys.path.insert(0, sys.argv.pop(1))
+builtins.print = lambda *args, **kwargs: os._exit(91)
+import ledger
+sys.exit(ledger.main())
+''', str(HERE), *args], input=json.dumps(payload), capture_output=True, text=True, timeout=15)
+        self.assertEqual(proc.returncode, 91, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, '')
+        saved = json.loads(self.state.read_text())
+        self.rev = saved['revision']
+        self.assertEqual((saved['lifecycle']['stage'], saved['lifecycle']['outer_cycle'],
+                          saved['budgets']['outer_cycles']['used']), ('PLANNING', 2, 2))
+        receipt = saved['operations'][args[args.index('--op-id') + 1]]
+        self.assertEqual((receipt['selected_route'], receipt['resulting_cycle'], receipt['charged_cycles']),
+                         ('replan', 2, 1))
+        replay = self.call(*args, body=payload)
+        self.assertTrue(replay['replayed'])
+        reread = json.loads(self.state.read_text())
+        self.assertEqual((reread['revision'], reread['budgets']['outer_cycles']['used']), (self.rev, 2))
+
+    def director_ask(self, key, *, scope=None, trigger='authority', delivery='sent'):
+        return {'id': key, 'tag': 'DECISION-REQUIRED', 'scope': scope or {'kind': 'project'}, 'trigger': trigger,
+                'ask': 'May we narrow the affected work?', 'why_now': 'Fixture authority boundary',
+                'options': {'narrow': {'outcome': 'narrow', 'consequence': 'defer the excluded work'}},
+                'recommendation': {'option': 'narrow', 'basis': 'fits existing cap', 'change_if': 'new evidence'},
+                'without_reply': 'affected work remains parked', 'delivery': delivery, 'artifacts': self.hashes}
+
+    def director_reply(self, key, *, option='narrow', valid=True):
+        return self.lifecycle(director.REPLY, {'id': key, 'classification': 'authorization', 'option': option,
+                              'readback': 'Fixture readback of the permitted effect', 'artifacts': self.hashes}, valid=valid)
+
+    def test_director_scope_fyi_and_ambiguous_reply_do_not_release_or_overblock(self):
+        self.lifecycle(director.MESSAGE, {'id': 'F-1', 'tag': 'FYI', 'summary': 'Fixture optional failure',
+                       'next_step': 'Lead will reconcile', 'delivery': 'sent', 'artifacts': self.hashes})
+        first = self.apply('assess-task', self.assessment('A'))['op_id']
+        self.call('check-task', self.state, first)
+        request = self.director_ask('D-1', scope={'kind': 'tasks', 'task_ids': ['pilot-A']}, delivery='pending')
+        self.lifecycle(director.MESSAGE, request)
+        self.call('check-task', self.state, first, valid=False)
+        payload = self.brief_payload('A') | {'assessment_id': first}
+        self.apply('issue', payload, valid=False)
+        self.brief('B')  # A's authority issue does not prevent independent dispatch preparation.
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+        self.director_reply('D-1', valid=False)  # No observed delivery.
+        self.lifecycle(director.DELIVERY, {'id': 'D-1', 'status': 'sent', 'artifacts': self.hashes})
+        self.lifecycle(director.REPLY, {'id': 'D-1', 'classification': 'ambiguous',
+                       'next_step': 'Which option did you mean?', 'artifacts': self.hashes})
+        self.assertEqual(self.get('D-1')['status'], 'open')
+        published = self.publish_director('D-1')
+        self.lifecycle(director.FILE, {'id': 'D-1', 'publication_id': published})
+        self.call('check-task', self.state, first, valid=False)
+        self.director_reply('D-1')
+        self.lifecycle(director.FILE, {'id': 'D-1', 'publication_id': published}, valid=False)
+        unindexed = self.publish_director('D-1', index_decisions=False)
+        bad = self.lifecycle(director.FILE, {'id': 'D-1', 'publication_id': unindexed}, valid=False)
+        self.assertIn('root index', bad['refused'])
+        current = self.publish_director('D-1')
+        self.lifecycle(director.FILE, {'id': 'D-1', 'publication_id': current})
+        self.assertEqual(self.get('D-1')['status'], 'closed')
+        self.apply('issue', payload, valid=False)  # Old READY predates the authorized scope.
+        renewed = self.apply('assess-task', self.assessment('A'))['op_id']
+        self.apply('issue', {**payload, 'assessment_id': renewed})
+        (self.root / HUB / 'decisions/D-1.md').write_text('unexpected replacement')
+        self.call('check-task', self.state, renewed, valid=False)
+
+    def test_project_resource_hold_requires_reconciled_filed_authority(self):
+        req = self.director_ask('RES-1', trigger='resources')
+        self.lifecycle(director.MESSAGE, req)
+        self.assertEqual(self.call('status', self.state)['status'], 'hold')
+        self.lifecycle('begin-okf-publication', {'paths': ['unrelated.md'], 'request_artifacts': self.hashes}, valid=False)
+        self.lifecycle(director.MESSAGE, {**req, 'id': 'RES-2', 'supersedes': 'RES-1', 'trigger': 'authority'}, valid=False)
+        self.lifecycle(director.MESSAGE, {**req, 'id': 'RES-2', 'supersedes': 'RES-1'})
+        self.assertEqual(self.get('RES-1')['status'], 'superseded')
+        self.lifecycle('resolve-hold', {'resolution': 'assumed approval'}, valid=False)
+        self.director_reply('RES-2')
+        self.lifecycle('resolve-hold', {'resolution': 'reply not filed'}, valid=False)
+        publication = self.publish_director('RES-1', 'RES-2')
+        self.lifecycle(director.FILE, {'id': 'RES-2', 'publication_id': publication}, valid=False)
+        self.lifecycle(director.FILE, {'id': 'RES-1', 'publication_id': publication})
+        self.lifecycle(director.FILE, {'id': 'RES-2', 'publication_id': publication})
+        self.lifecycle('resolve-hold', {'resolution': 'no proof of narrowing'}, valid=False)
+        closed = self.lifecycle('resolve-hold', {'resolution': 'narrowing reconciled',
+                                'resource_decisions': ['RES-2'], 'reconciliation_artifacts': self.hashes})
+        self.assertEqual(closed['director_resume_ids'], ['RES-2'])
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+
+    def test_director_stop_parks_immediately_and_does_not_assert_child_exit(self):
+        revision_id = self.brief('stop')
+        self.apply('reserve', {'id': 'running', 'revision_id': revision_id, 'profile_ref': 'fixture'})
+        self.apply('attach-run', {'id': 'running', 'run_id': 'run-stop', 'evidence': 'fixture dispatch'})
+        self.lifecycle(director.STOP, {'id': 'STOP-1', 'reason': 'Fixture urgent stop; hub not available yet'})
+        view = self.call('status', self.state)
+        self.assertEqual(view['status'], 'hold')
+        self.assertEqual(view['director']['unresolved']['assignments'], ['running'])
+        self.assertNotIn('stop_reconciled', self.get('STOP-1'))
+        status_file = {'status_report': 'artifact.txt', 'artifacts': self.hashes, 'director_decision': 'STOP-1'}
+        self.lifecycle('suspend-held', status_file, valid=False)
+        self.director_reply('STOP-1', option='stop')
+        pub = self.publish_director('STOP-1')
+        self.lifecycle(director.FILE, {'id': 'STOP-1', 'publication_id': pub})
+        self.lifecycle('resolve-hold', {'resolution': 'must remain stopped'}, valid=False)
+        proof = {'id': 'STOP-1', 'summary': 'Fixture exit and effects checked', 'artifacts': self.hashes}
+        failure = self.lifecycle(director.STOPPED, proof, valid=False)
+        self.assertIn('still unresolved', failure['refused'])
+        suspended = self.lifecycle('suspend-held', status_file)
+        self.assertIsNone(suspended['stop_reconciled'])
+        self.apply('observe-termination', {'id': 'running', 'evidence': 'fixture process exit confirmed'})
+        observed = self.lifecycle(director.STOPPED, proof)
+        self.assertEqual(self.get('STOP-1')['stop_reconciled'], observed['op_id'])
+        update = self.publish_director('STOP-1')
+        self.lifecycle(director.FILE, {'id': 'STOP-1', 'publication_id': update})
+        self.assertEqual(self.call('status', self.state)['status'], 'suspended')
+
+    def test_pending_director_authority_blocks_gate_and_filing_requires_a_fresh_review(self):
+        self.lifecycle('start-scoping')
+        self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
+        self.review('protocol', 'before-authority', route=None)
+        self.lifecycle(director.MESSAGE, self.director_ask('D-GATE', scope={'kind': 'tasks', 'task_ids': ['pilot-A']}))
+        proposed = {'id': 'before-authority', 'route': 'continue'}
+        refused = self.lifecycle('gate-route', proposed, valid=False)
+        self.assertIn('D-GATE blocks', refused['refused'])
+        self.director_reply('D-GATE')
+        publication = self.publish_director('D-GATE')
+        self.lifecycle(director.FILE, {'id': 'D-GATE', 'publication_id': publication})
+        refused = self.lifecycle('gate-route', proposed, valid=False)
+        self.assertIn('gate input state changed', refused['refused'])
+        self.lifecycle('withdraw-stale-review', {'id': 'before-authority'})
+        self.review('protocol', 'now-current')
+
+    def test_stale_standing_brief_cannot_pass_cycle_precheck(self):
+        self.open_cycle('brief', initial=True)
+        manifest = self.gate_manifest('cycle', 'brief-test')
+        checked = self.check_okf(manifest)
+        publication = self.get(checked['publication_id'])
+        self.lifecycle(director.MESSAGE, {'id': 'F-brief', 'tag': 'FYI', 'summary': 'New material event',
+                       'next_step': 'refresh brief', 'delivery': 'sent', 'artifacts': self.hashes})
+        failure = self.check_okf(manifest, publication=publication, valid=False)
+        self.assertIn('standing Director brief is stale', failure['refused'])
+        self.check_okf(manifest)
+
+    def test_gate_checkpoint_refuses_uncommitted_ledger_and_role_file(self):
+        self.lifecycle('start-scoping')
+        self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
+        self.review('protocol', 'checkpoint-review', route=None)
+        payload = {'id': 'checkpoint-review', 'route': 'continue'}
+        args = self.args('lifecycle', 'gate-route')
+        op = args[args.index('--op-id') + 1]
+        preview = self.call('checkpoint-plan', self.state, 'gate-route', '--op-id', op, '--input', '-', body=payload)
+        self.assertEqual(preview['decision']['selected_route'], 'continue')
+        self.assertFalse((self.root / preview['decision_path']).exists())
+        with_missing = self.get('checkpoint-review')['manifest']['artifact_roles']['hypotheses']
+        args, payload = self.route_commit(args, payload, omit=[with_missing])
+        failure = self.call(*args, body=payload, valid=False)
+        self.assertIn(with_missing, failure['refused'])
+        self.lifecycle('objective', {'id': 'O-1', 'status': 'partial', 'evidence_refs': ['artifact.txt']})
+        self.git('add', '--', with_missing)
+        self.git('commit', '-qm', preview['git_subject'])
+        body = {**payload, 'checkpoint': self.git('rev-parse', 'HEAD')}
+        args = args[:-1] + (str(self.rev),)
+        failure = self.call(*args, body=body, valid=False)
+        self.assertIn('exact bytes: project-state.json', failure['refused'])
+        self.git('add', '--', self.state.name)
+        self.git('commit', '-qm', preview['git_subject'])
+        body['checkpoint'] = self.git('rev-parse', 'HEAD')
+        self.call(*args, body=body)
+
+    def test_gate_refuses_contradictory_decision_and_rewritten_checkpoint_lineage(self):
+        self.lifecycle('start-scoping')
+        self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
+        self.review('protocol', 'route-identity', route=None)
+        args = self.args('lifecycle', 'gate-route')
+        args, payload = self.route_commit(args, {'id': 'route-identity', 'route': 'continue'})
+        op = args[args.index('--op-id') + 1]
+        preview = self.call('checkpoint-plan', self.state, 'gate-route', '--op-id', op, '--input', '-', body=payload)
+        path = preview['decision_path']
+        self.fixture_file(path, preview['decision'] | {'selected_route': 'hold'})
+        self.git('add', '--', path)
+        self.git('commit', '-qm', preview['git_subject'])
+        payload['checkpoint'] = self.git('rev-parse', 'HEAD')
+        rejected = self.call(*args, body=payload, valid=False)
+        self.assertIn('exact selected transition', rejected['refused'])
+        self.fixture_file(path, preview['decision'])
+        self.git('add', '--', path)
+        self.git('commit', '-qm', preview['git_subject'])
+        tip = self.git('rev-parse', 'HEAD')
+        # An identical tree on a different history is not the same checkpoint.
+        orphan = self.git('commit-tree', self.git('rev-parse', 'HEAD^{tree}'), '-m', preview['git_subject'])
+        self.git('reset', '--soft', orphan)
+        self.assertTrue(self.call('status', self.state)['checkpoint_flags'])
+        rejected = self.call(*args, body={**payload, 'checkpoint': orphan}, valid=False)
+        self.assertIn('first-parent history', rejected['refused'])
+        self.git('reset', '--soft', tip)
+        self.call(*args, body={**payload, 'checkpoint': tip})
+
+    def test_optional_timeout_and_mandatory_gate_hold_allow_independent_work_only(self):
+        self.lifecycle('start-scoping')
+        self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
+        route = {'kind': 'pool', 'fixed_role': None, 'assignee': 'approved-reader', 'handoff': 'eligible',
+                 'required': False, 'reason': 'independent optional archive retrieval'}
+        assessment = self.apply('assess-task', self.assessment('optional', routing=route))['op_id']
+        brief = self.brief_payload('optional') | {'assessment_id': assessment, 'assignee': 'approved-reader',
+                                                  'routing_reason': route['reason']}
+        self.apply('issue', brief)
+        self.apply('mark-ready', {'id': brief['id'], 'basis': 'fixture independent retrieval'})
+        self.apply('reserve', {'id': 'optional-attempt', 'revision_id': brief['id'], 'profile_ref': 'fixture'})
+        self.apply('attach-run', {'id': 'optional-attempt', 'run_id': 'optional-timeout', 'evidence': 'fixture launch'})
+        self.apply('observe-termination', {'id': 'optional-attempt', 'evidence': 'fixture exit observed'})
+        self.apply('record-no-result', {'id': 'optional-attempt', 'evidence': 'fixture no usable output'})
+        rejected = self.apply('decision', {'id': 'optional-rejected', 'attempt_id': 'optional-attempt',
+                                           'verdict': 'rejected', 'rationale': 'optional source unavailable'})
+        self.assertEqual(rejected['record_id'], 'optional-rejected')
+        self.finish('independent-before-review')
+        target = {'gate': 'PLAN_GATE', 'phase': 'protocol'}
+        required_review = self.apply('assess-task', self.assessing('required-review',
+                                      triggers=['stage-review-gate'], gate=target))['op_id']
+        self.review('protocol', 'advisor-unavailable', route=None, assessment_id=required_review,
+                    failure='fixture Advisor process unavailable')
+        self.call('check-task', self.state, required_review, valid=False)
+        status = self.call('status', self.state)
+        self.assertEqual(status['status'], 'active')
+        self.assertEqual(status['gate_holds'][0]['id'], 'advisor-unavailable')
+        self.assertEqual(self.call('next', self.state)['candidates'][0]['action'], 'checkpoint-gate-hold')
+        self.lifecycle('checkpoint-gate-hold', {'id': 'advisor-unavailable'})
+        self.assertEqual(self.call('next', self.state)['candidates'][0]['action'], 'resolve-gate-hold')
+        self.finish('independent-during-gate-hold')
+        self.review('protocol', 'premature-re-review', valid=False)
+        triage_sha = self.fixture_file('triage.txt', 'pinned independent triage observation')
+        self.resolve_gate_hold('advisor-unavailable', 'bounded Advisor re-request after fresh packet review',
+                               {'triage.txt': triage_sha})
+        (self.root / 'triage.txt').write_text('drift')
+        stale = self.review('protocol', 'stale-triage-retry', valid=False)
+        self.assertIn('artifact drift: triage.txt', stale['refused'])
+        (self.root / 'triage.txt').write_text('pinned independent triage observation')
+        self.review('protocol', 'recovered-advisor-review', assessment_id=required_review)
+        self.assertEqual(self.call('status', self.state)['stage'], 'IMPLEMENTING')
+        self.assertEqual(self.call('status', self.state)['gate_holds'], [])
+
+    def test_gate_hold_is_immediate_but_resume_requires_checkpoint(self):
+        self.lifecycle('start-scoping')
+        self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
+        self.review('protocol', 'block-before-commit', verdict='block', route=None)
+        status = self.call('status', self.state)
+        self.assertEqual(status['status'], 'active')
+        self.assertEqual(status['pending_gate_hold_checkpoint'], 'block-before-commit')
+        self.lifecycle('resolve-hold', {'resolution': 'not yet'}, valid=False)
+        self.lifecycle('checkpoint-gate-hold', {'id': 'block-before-commit'})
+        self.assertEqual(self.call('status', self.state)['status'], 'active')
+        self.resolve_gate_hold('block-before-commit', 'fixture evidence triaged')
+        self.assertIsNone(self.call('status', self.state)['pending_gate_hold_checkpoint'])
 
     def test_invalid_or_stale_verdict_cannot_advance(self):
         self.lifecycle('start-scoping')
@@ -934,7 +1504,8 @@ sys.exit(ledger.main())
         self.review('complete', 'repair-exit')
         self.review('cycle', 'block-at-cap', verdict='block', route=None)
         view = self.call('status', self.state)
-        self.assertEqual((view['status'], view['cycles_used']), ('hold', 3))
+        self.assertEqual((view['status'], view['cycles_used']), ('active', 3))
+        self.assertEqual(view['gate_holds'][0]['id'], 'block-at-cap')
         self.lifecycle('suspend-held', {'status_report': 'not confirmed'}, valid=False)
 
     def test_malformed_gate_result_records_no_verdict_and_bounds_retries(self):
@@ -947,14 +1518,96 @@ sys.exit(ledger.main())
             r = self.lifecycle('gate-review', body, valid=i < 3)
             if i < 3:
                 self.assertEqual(r['verdict'], 'none')
-                self.assertEqual(self.call('status', self.state)['status'], 'hold')
-                self.lifecycle('resolve-hold', {'resolution': 'bounded retry fixture'})
+                self.assertEqual(self.call('status', self.state)['status'], 'active')
+                self.resolve_gate_hold(f'no-verdict-{i}', 'bounded retry fixture')
         self.lifecycle('begin-inner-attempt', valid=False)
 
+    def test_protocol_artifact_inventory_blocks_missing_roles_and_wrong_charter(self):
+        self.lifecycle('start-scoping')
+        self.lifecycle('start-planning', {'charter_ref': 'charter.md'})
+        expected = self.gate_manifest('protocol', 'protocol-missing')
+        roles = expected['artifact_roles'].copy()
+        del roles['hypotheses']
+        failed = self.review('protocol', 'protocol-missing', route=None, extra={'artifact_roles': roles})
+        self.assertEqual(failed['verdict'], 'none')
+        self.assertIn('hypotheses', self.get('protocol-missing')['failure'])
+        self.resolve_gate_hold('protocol-missing', 'fixture: add hypotheses')
+        wrong_charter = self.fixture_file('previous-charter.md', 'fixture superseded charter')
+        wrong = expected | {'artifact_roles': expected['artifact_roles'] | {'charter': 'previous-charter.md'},
+                            'artifacts': expected['artifacts'] | {'previous-charter.md': wrong_charter}}
+        state = json.loads(self.state.read_text())
+        with self.assertRaisesRegex(ValueError, 'active project charter'):
+            check_submission(state, wrong, 'PLAN_GATE', 'protocol', self.root)
+        approved = self.review('protocol', 'with-artifacts')
+        self.assertEqual(approved['verdict'], 'approve')
+
+    def test_diagnosis_only_does_not_waive_raw_results_or_allow_success(self):
+        self.start_implementation()
+        self.review('readiness', 'ready-for-eval')
+        evidence = self.gate_manifest('complete', 'no-raw-results')
+        roles = evidence['artifact_roles'].copy()
+        del roles['raw-results']
+        bad = self.review('complete', 'no-raw-results', route=None, extra={'artifact_roles': roles})
+        self.assertEqual(bad['verdict'], 'none')
+        self.assertIn('raw-results', self.get('no-raw-results')['failure'])
+        self.resolve_gate_hold('no-raw-results', 'fixture: investigate what is missing')
+        bad = self.review('diagnosis', 'budget-still-available', route=None,
+                          extra={'diagnosis': {'reason': 'attempt-budget-exhausted', 'gaps': ['no valid results'],
+                                               'rationale': 'incorrect exhaustion assertion'}})
+        self.assertEqual(bad['verdict'], 'none')
+        self.assertIn('unspent', self.get('budget-still-available')['failure'])
+        self.resolve_gate_hold('budget-still-available', 'fixture: show actual need for a plan change')
+        self.review('diagnosis', 'diagnosis-only', route=None)
+        self.lifecycle('gate-route', {'id': 'diagnosis-only', 'route': 'continue'}, valid=False)
+        self.lifecycle('gate-route', {'id': 'diagnosis-only', 'route': 'continue-to-diagnose'})
+        self.lifecycle('objective', {'id': 'O-1', 'status': 'met', 'evidence_refs': ['artifact.txt']})
+        self.review('cycle', 'cannot-report-diagnosis', route=None, extra={'proposed_route': 'report'})
+        self.lifecycle('gate-route', {'id': 'cannot-report-diagnosis', 'route': 'report'}, valid=False)
+        self.assertEqual(self.call('status', self.state)['stage'], 'ANALYZING')
+
+    def test_cycle_proposal_binds_active_cycle_and_forward_route(self):
+        self.open_cycle('1', initial=True)
+        m = self.gate_manifest('cycle', 'wrong-cycle')
+        rel = m['artifact_roles']['cycle-decision']
+        record = json.loads((self.root / rel).read_text())
+        m['artifacts'][rel] = self.fixture_file(rel, record | {'cycle': 3})
+        check_manifest(m, 'CYCLE_GATE', 'cycle', self.root)  # Shape and hashes alone are insufficient.
+        state = json.loads(self.state.read_text())
+        with self.assertRaisesRegex(ValueError, 'different cycle or plan'):
+            check_submission(state, m, 'CYCLE_GATE', 'cycle', self.root)
+        self.lifecycle('objective', {'id': 'O-1', 'status': 'met', 'evidence_refs': ['artifact.txt']})
+        result = self.review('cycle', 'wrong-forward-route', route=None, extra={'proposed_route': 'hold'})
+        self.assertEqual(result['verdict'], 'none')
+        self.assertIn('cover the report route', self.get('wrong-forward-route')['failure'])
+
+    def test_final_report_requires_exact_verification_and_final_manifest(self):
+        m = self.gate_manifest('report', 'draft')
+        check_manifest(m, 'REPORT_GATE', 'report', self.root)
+        path = m['artifact_roles']['verification']
+        record = json.loads((self.root / path).read_text())
+        record['artifacts'][m['artifact_roles']['report']] = '0' * 64
+        m['artifacts'][path] = self.fixture_file(path, record)
+        with self.assertRaisesRegex(ValueError, 'exact mandatory report artifact hashes'):
+            check_manifest(m, 'REPORT_GATE', 'report', self.root)
+        m = self.gate_manifest('report', 'draft')
+        path = m['artifact_roles']['final-manifest']
+        record = json.loads((self.root / path).read_text())
+        del record['artifacts'][m['artifact_roles']['claim-evidence-matrix']]
+        m['artifacts'][path] = self.fixture_file(path, record)
+        with self.assertRaisesRegex(ValueError, 'final artifact manifest must pin'):
+            check_manifest(m, 'REPORT_GATE', 'report', self.root)
+
     def test_manifest_coverage_and_freshness(self):
+        roles = self.gate_manifest('protocol', 'protocol')['artifact_roles']
+        self.fixture_file('roles.json', roles)
         args = SimpleNamespace(id='protocol@1', gate='PLAN_GATE', phase='protocol', paths=['artifact.txt'],
-                               required_test=['unit'])
+                               required_test=['unit'], artifact_roles=self.root / 'roles.json', phase_evidence=None)
         reviewed = manifest(self.root, args)
+        cli = subprocess.run([sys.executable, '-B', HERE / 'checks.py', 'manifest', self.root, 'PLAN_GATE',
+                              'protocol', 'protocol@1', 'artifact.txt', '--required-test', 'unit',
+                              '--artifact-roles', args.artifact_roles], capture_output=True, text=True, timeout=10)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+        self.assertEqual(json.loads(cli.stdout), reviewed)
         self.assertTrue(coverage(self.root, reviewed, reviewed)['covers_same_bytes'])
         self.artifact.write_text('changed intentionally')
         args.id = 'protocol@2'

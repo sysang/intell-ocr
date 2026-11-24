@@ -33,8 +33,10 @@ from pathlib import Path
 import subprocess
 
 import consultations
+import director
 import durable
 import evidence
+import gate_checkpoints
 import gates
 import hub_publication
 import knowledge
@@ -71,6 +73,13 @@ def finite_float(value):
 
 def read_json(stream):
     return json.load(stream, object_pairs_hook=unique_fields, parse_constant=reject_constant, parse_float=finite_float)
+
+
+def read_payload(path):
+    if path == '-':
+        return read_json(sys.stdin)
+    with open(path, encoding='utf-8') as f:
+        return read_json(f)
 
 
 def load_state(path):
@@ -386,6 +395,11 @@ def main(argv=None):
     apply.add_argument('--expected-revision', required=True, type=int)
     apply.add_argument('--actor', required=True)
     apply.add_argument('--reason', required=True)
+    plan = sub.add_parser('checkpoint-plan')
+    plan.add_argument('state')
+    plan.add_argument('action', choices=gate_checkpoints.ACTIONS)
+    plan.add_argument('--input', required=True, help='proposed apply payload (without checkpoint)')
+    plan.add_argument('--op-id', required=True)
     get = sub.add_parser('get')
     get.add_argument('state')
     get.add_argument('id')
@@ -408,17 +422,13 @@ def main(argv=None):
                                             args.charter, args.stagnation_cycles)
                     receipt = {'revision': 0, 'project': args.project}
                 else:
-                    if args.group == 'lifecycle' and args.action in (*hub_publication.ACTIONS, knowledge.ACTION):
-                        evidence.require(path == Path(args.state).absolute() and path.name == 'project-state.json',
-                                         'managed OKF operations require the canonical project-state.json (no symlinks)')
+                    if args.group == 'lifecycle' and args.action in (*hub_publication.ACTIONS, knowledge.ACTION, *gate_checkpoints.ACTIONS):
+                        evidence.require(path == Path(args.state).absolute() and path.name == gate_checkpoints.STATE,
+                                         'managed hub and checkpoint operations require the canonical project-state.json (no symlinks)')
                     state = load_state(path)
                     problems = check_invariants(state)
                     evidence.require(not problems, '; '.join(problems))
-                    if args.input == '-':
-                        payload = read_json(sys.stdin)
-                    else:
-                        with open(args.input, encoding='utf-8') as f:
-                            payload = read_json(f)
+                    payload = read_payload(args.input)
                     new, receipt = durable.apply(state, args.group, args.action, payload, args.op_id,
                                                  args.expected_revision, args.actor, args.reason, now_iso(), path.parent)
                 if new is not None:
@@ -427,9 +437,13 @@ def main(argv=None):
             return 0
         state = load_state(path)
         problems = check_invariants(state)
-        if not problems and args.cmd in ('get', 'check-close', 'check-task'):
+        if not problems and args.cmd in ('get', 'check-close', 'check-task', 'checkpoint-plan'):
             evidence.require(state.get('format') == 1, 'operation requires managed state')
-            if args.cmd == 'get':
+            if args.cmd == 'checkpoint-plan':
+                payload = read_payload(args.input)
+                evidence.require(isinstance(payload, dict), 'checkpoint proposal must be a JSON object')
+                result = gate_checkpoints.envelope(state, args.action, payload, args.op_id, path.parent)
+            elif args.cmd == 'get':
                 receipt = state['operations'].get(args.id)
                 if receipt and receipt['group'] == 'evidence' and receipt['action'] == task_readiness.ACTION:
                     result = {'kind': 'task_assessment', 'record': receipt}
@@ -438,6 +452,16 @@ def main(argv=None):
                     result = {'kind': 'consultation_receipt', 'record': receipt}
                 elif receipt and receipt['group'] == 'lifecycle' and receipt['action'] in (*hub_publication.ACTIONS, knowledge.ACTION):
                     result = {'kind': 'okf_receipt', 'record': receipt}
+                elif receipt and receipt.get('decision_path'):
+                    result = {'kind': 'gate_checkpoint', 'record': receipt}
+                elif receipt and receipt['group'] == 'lifecycle' and receipt['action'] == 'resolve-gate-hold':
+                    result = {'kind': 'gate_hold_resolution', 'record': receipt}
+                elif receipt and receipt['group'] == 'lifecycle' and receipt['action'] in director.ACTIONS:
+                    result = {'kind': 'director_receipt', 'record': receipt}
+                elif any(row['id'] == args.id for row in director.entries(state)):
+                    row = director.get(state, args.id)
+                    result = {'kind': 'director_record', 'record': row, 'message': director.request(state, row),
+                              'reply': director.receipt(state, row, 'latest_reply'), 'marker': director.marker(row)}
                 elif any(c['id'] == args.id for c in state['consultations']):
                     result = {'kind': 'consultation', 'record': next(c for c in state['consultations'] if c['id'] == args.id)}
                 else:
@@ -445,8 +469,11 @@ def main(argv=None):
                               if args.id in state['gate_reviews'] else evidence.get(state, args.id))
             elif args.cmd == 'check-task':
                 assessment = task_readiness.check_ready(state, args.assessment_id, path.parent)
+                director.require_work(state, path.parent, task=assessment['beads_task_id'],
+                                      assessment_id=args.assessment_id, dispatch=True)
                 result = {'ready': True, 'routing': assessment['routing'], 'beads_task_id': assessment['beads_task_id']}
             else:
+                director.require_work(state, path.parent, task=args.task)
                 evidence.close_check(state, args.task, args.record, args.disposition, path.parent)
                 result = {'allowed': True, 'revision': state['revision'], 'project': state['identity']['project_id']}
             print(json.dumps(result, indent=2))
@@ -471,11 +498,18 @@ def main(argv=None):
             status['pending_inner_attempt'] = state['lifecycle'].get('pending_inner_attempt')
             status['gate_reviews'] = [{k: row[k] for k in ('gate', 'phase', 'verdict', 'route')} | {'id': key}
                                       for key, row in state['gate_reviews'].items() if row['cycle'] == status['outer_cycle']]
+            status['gate_holds'] = [{'id': key, 'gate': row['gate'], 'phase': row['phase'],
+                                     'reason': row.get('hold_reason'),
+                                     'checkpoint_pending': bool(row.get('checkpoint_pending'))}
+                                    for key, row in gates.gate_holds(state)]
             status['gate_flags'] = gates.flags(state, path.parent)
             status['execution'] = evidence.view(state['execution'])
             status['task_assessments'] = task_readiness.view(state)
             status['advisor_calls'] = consultations.view(state)
             status['okf_publication'] = hub_publication.view(state)
+            status['director'] = director.view(state)
+            status['pending_gate_hold_checkpoint'] = gate_checkpoints.pending_hold(state)
+            status['checkpoint_flags'] = gate_checkpoints.history_flags(state, path.parent)
         print(json.dumps(status, indent=2))
     elif args.cmd == "next":
         if state.get('format') == 1:
@@ -485,6 +519,12 @@ def main(argv=None):
                               'task_assessments': task_readiness.view(state),
                               'advisor_calls': consultations.view(state),
                               'okf_publication': hub_publication.view(state),
+                              'director': director.view(state),
+                              'checkpoint_flags': gate_checkpoints.history_flags(state, path.parent),
+                              'gate_holds': [{'id': key, 'gate': row['gate'], 'phase': row['phase'],
+                                              'reason': row.get('hold_reason'),
+                                              'checkpoint_pending': bool(row.get('checkpoint_pending'))}
+                                             for key, row in gates.gate_holds(state)],
                               'candidates': gates.candidates(state, path.parent)}, indent=2))
         else:
             print(json.dumps(cmd_next(state, meta), indent=2))

@@ -17,7 +17,7 @@ ACTION = 'check-okf-gate'
 PUBLISH = 'publish-okf'
 
 
-def okf_precheck(root, result, reader=None):
+def okf_precheck(root, result, reader=None, *, reader_required=False, snapshot=None):
     writer = WRITER
     commands = [([writer, 'bundle', root], None), ([writer, 'result', result], None)]
     if reader:
@@ -33,8 +33,19 @@ def okf_precheck(root, result, reader=None):
     body = json.loads(result.read_text(encoding='utf-8'))
     require(body['status'] == 'committed' and not body['revision']['git_commit_made'], 'writer has not published a clean result')
     if reader:
-        require(json.loads(reader.read_text(encoding='utf-8'))['status'] != 'insufficient',
-                'required OKF reader did not supply sufficient evidence')
+        retrieved = json.loads(reader.read_text(encoding='utf-8'))
+        if reader_required:
+            require(retrieved['status'] == 'sufficient' and retrieved['evidence'],
+                    'required OKF reader did not supply sufficient primary evidence')
+        else:
+            require(retrieved['status'] != 'insufficient', 'OKF reader did not supply evidence')
+        if snapshot is not None:
+            require(retrieved['revision'].get('bundle_sha256') == snapshot,
+                    'OKF reader result targets a different or unspecified hub snapshot')
+        for item in retrieved['evidence']:
+            path = (root / item['conceptPath']).resolve()
+            require(path.is_relative_to(root) and path.is_file(),
+                    f"reader references missing bundle file: {item['conceptPath']}")
     for name in set(body['created'] + body['updated'] + body['deprecated']):
         path = (root / name).resolve()
         require(path.is_relative_to(root) and path.is_file(), f'result references missing bundle file: {name}')
@@ -110,7 +121,8 @@ def run_gate_check(state, project, manifest, payload):
     require(publication['writer_result'] == writer and artifacts[writer] == publication['writer_artifacts'][writer],
             'writer evidence differs from the managed OKF publication')
     versions = validator_fingerprints(reader)
-    result = okf_precheck(project / HUB, project / writer, project / reader if reader else None)
+    result = okf_precheck(project / HUB, project / writer, project / reader if reader else None,
+                          reader_required=manifest.get('okf_reader_required', False), snapshot=snapshot)
     verify_artifacts(project, artifacts)
     require(snapshot == hub_fingerprint(project) and versions == validator_fingerprints(reader),
             'OKF hub or validator changed while checking; reconcile and check again')

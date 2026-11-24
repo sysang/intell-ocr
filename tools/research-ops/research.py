@@ -112,7 +112,7 @@ def preflight(p, pi, subagents):
              REPO / '.pi/agents/okf-reader/validate_result.py',
              REPO / '.pi/agents/okf-writer/validate_okf.py',
              *(Path(__file__).with_name(name) for name in ('research.py', 'ledger.py', 'durable.py', 'gates.py',
-                                                         'knowledge.py', 'hub_publication.py', 'snapshot_schema.py',
+                                                         'knowledge.py', 'hub_publication.py', 'gate_artifacts.py', 'gate_checkpoints.py', 'director.py', 'snapshot_schema.py',
                                                          'project-state.schema.json', 'requirements.txt'))]
     definitions = {}
     for name in sorted(FIXED):

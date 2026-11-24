@@ -73,6 +73,8 @@ def source_diff(root, before, after):
 
 def check_reuse(state, root, original, current, proof):
     old, new = check_shape(original), check_shape(current)
+    require(original.get('artifact_roles') == current.get('artifact_roles'),
+            'readiness reuse must retain the reviewed package roles and their file bindings')
     require(old['protocol_review'] == new['protocol_review'] and old['revision'] != new['revision'],
             'reuse requires a later implementation revision within the same approved protocol')
     # Only covered baseline files may change under this exception. Other original evidence stays current.

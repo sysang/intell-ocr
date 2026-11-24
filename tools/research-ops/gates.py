@@ -3,6 +3,9 @@ import re
 from subprocess import TimeoutExpired
 
 import consultations
+import director
+import gate_artifacts
+import gate_checkpoints
 import hub_publication
 import inner_attempts
 import knowledge
@@ -46,12 +49,24 @@ def check_manifest(manifest, gate, phase, root):
             manifest.get('gate') == gate and manifest.get('phase') == phase and text(manifest.get('id')) and
             re.fullmatch(r'[A-Za-z0-9_.:-]+@[A-Za-z0-9_.:-]+', manifest['id']), 'manifest must name exact gate, phase, and id@version')
     verify_artifacts(root, manifest.get('artifacts'))
+    gate_artifacts.check(manifest, phase, root)
     require(all(type(manifest.get(key, False)) is bool for key in ('okf_required', 'okf_reader_required')),
             'OKF dependency declarations must be boolean')
     if phase == 'protocol':
         readiness.required_tests(manifest)
     elif phase == 'readiness':
         readiness.check_shape(manifest)
+
+
+def check_submission(state, manifest, gate, phase, root):
+    check_manifest(manifest, gate, phase, root)
+    gate_artifacts.check_context(state, manifest, root)
+
+
+def require_services(state, root, manifest, check_id):
+    knowledge.require_current(state, root, manifest, check_id)
+    if manifest['phase'] in ('cycle', 'report'):
+        director.require_brief(state, root)
 
 
 def predicates(state):
@@ -68,9 +83,10 @@ def predicates(state):
 
 
 def review_basis(state, phase):
-    if phase == 'cycle':
-        return digest([state['objectives'], state['progress_verdicts'], state['lifecycle']['plan_version']])
-    return None
+    basis = [state['objectives'], state['progress_verdicts'], state['lifecycle']['plan_version']] if phase == 'cycle' else []
+    if authority := director.review_authority_basis(state):
+        basis.append(authority)
+    return digest(basis) if basis else None
 
 
 def check_readiness(state, manifest, root):
@@ -108,7 +124,7 @@ def latest_approval(state, phase, root):
     check_consumer(state['execution'], key, root)
     reuse = prior_reuse(state, key) if phase == 'readiness' else None
     current = reuse['manifest'] if reuse else r['manifest']
-    check_manifest(current, r['gate'], phase, root)
+    check_submission(state, current, r['gate'], phase, root)
     if phase == 'readiness':
         check_readiness(state, current, root)
         if reuse:
@@ -117,10 +133,25 @@ def latest_approval(state, phase, root):
     return key, r
 
 
-def review_slot(state, gate, phase):
+def gate_holds(state):
+    cycle = state['lifecycle']['outer_cycle']
+    return [(key, row) for key, row in state['gate_reviews'].items()
+            if row['cycle'] == cycle and row['route'] == 'hold' and not row.get('gate_hold_resolution')]
+
+
+def review_slot(state, gate, phase, root):
     check_task_target(state, {'gate': gate, 'phase': phase})
     cycle = state['lifecycle']['outer_cycle']
     attempts = [r for r in state['gate_reviews'].values() if r['cycle'] == cycle and r['gate'] == gate and r['phase'] == phase]
+    require(not any(r['route'] == 'hold' and not r.get('gate_hold_resolution') for r in attempts),
+            'resolve the dependent gate HOLD with pinned triage evidence before a re-review')
+    for review in attempts:
+        if review.get('gate_hold_resolution'):
+            verify_artifacts(root, review['gate_hold_evidence'])
+    recovered_inconclusive = any(r['verdict'] == 'inconclusive' and r['route'] == 'hold' and
+                                 any(prior['verdict'] == 'inconclusive' and prior['route'] == 'gather-evidence'
+                                     for prior in attempts[:i]) for i, r in enumerate(attempts))
+    require(not recovered_inconclusive, 'bounded inconclusive re-review exhausted; escalate or suspend')
     require(all(r['route'] for r in attempts), 'route the prior recorded review first')
     consecutive_failures = 0
     for review in reversed(attempts):
@@ -133,33 +164,69 @@ def review_slot(state, gate, phase):
 def advance(state, action, p, now, root, *, op_id):
     lc, db, cycle = state['lifecycle'], state['gate_reviews'], state['lifecycle']['outer_cycle']
     result = {'launch_eligible': False}
+    if action == gate_checkpoints.HOLD:
+        require(p.get('id') == gate_checkpoints.pending_hold(state), 'name the pending gate HOLD')
+        proof = gate_checkpoints.verify(state, action, p, op_id, root)
+        db[p['id']].pop('checkpoint_pending')
+        return result | proof | {'record_id': p['id']}
     if action == hub_publication.ABORT:
         return result | hub_publication.advance(state, action, p, root, op_id)
     if action == consultations.SETTLE:
         # Observations do not resume the project or authorize consuming a result.
         return result | consultations.settle(state, p, root)
-    require(lc['status'] != 'suspended' and lc['stage'] != 'COMPLETED', 'project is terminal')
+    if action == 'resolve-gate-hold':
+        key = p.get('id')
+        row = state['gate_reviews'].get(key)
+        require(set(p) == {'id', 'resolution', 'artifacts'} and lc['status'] == 'active' and row and
+                row['cycle'] == cycle and row['route'] == 'hold' and not row.get('checkpoint_pending') and
+                not row.get('gate_hold_resolution') and text(p.get('resolution')) and isinstance(p.get('artifacts'), dict),
+                'resolve an active cycle gate HOLD with a concrete reason and pinned triage evidence')
+        verify_artifacts(root, p['artifacts'])
+        row['gate_hold_resolution'] = op_id
+        row['gate_hold_evidence'] = p['artifacts']
+        result.update(record_id=key, resolution=p['resolution'], artifacts=p['artifacts'])
+        return result
+    if action in (director.DELIVERY, director.REPLY, director.FILE, director.STOPPED):
+        return result | director.advance(state, action, p, root, op_id)
+    if action in inner_attempts.SETTLEMENTS:
+        # Existing effects can be reconciled even after a human stop.
+        return result | inner_attempts.settle(state, action, p, root)
+    terminal = lc['status'] == 'suspended' or lc['stage'] == 'COMPLETED'
+    if action == director.MESSAGE and p.get('tag') == 'FYI':
+        return result | director.advance(state, action, p, root, op_id)
+    if (lc['status'] == 'hold' or terminal) and action == hub_publication.BEGIN:
+        director.filing_scope(state, p)
+        return result | hub_publication.advance(state, action, p, root, op_id)
+    if terminal and action in (hub_publication.PREPARE, knowledge.PUBLISH):
+        director.filing_scope(state, hub_publication.pending(state) or {})
+        return result | hub_publication.advance(state, action, p, root, op_id)
+    require(not terminal, 'project is terminal')
+    if action in (director.MESSAGE, director.STOP):
+        return result | director.advance(state, action, p, root, op_id)
+    if action in ('start-planning', 'gate-route', 'reuse-readiness'):
+        director.require_work(state, root, gate=True)
     if action in (hub_publication.PREPARE, knowledge.PUBLISH):
         # A prepared recovery may finish on HOLD; this does not lift HOLD.
         return result | hub_publication.advance(state, action, p, root, op_id)
     if action in ('start-planning', 'gate-review', 'gate-route', 'reuse-readiness', knowledge.ACTION):
         hub_publication.require_idle(state)
-    if action in inner_attempts.SETTLEMENTS:
-        # Interrupted work may be reconciled on HOLD without authorizing further work.
-        return result | inner_attempts.settle(state, action, p, root)
+    if gate_checkpoints.pending_hold(state) and action in (
+            'start-planning', 'gate-review', 'gate-route', 'reuse-readiness', 'begin-inner-attempt'):
+        require(False, 'checkpoint the automatic gate HOLD before another review or gated transition')
     if action in ('gate-review', 'gate-route', 'reuse-readiness'):
         require('pending_inner_attempt' not in lc, 'reconcile the pending inner attempt before gate progression')
     if action == 'resolve-hold':
         require(lc['status'] == 'hold' and text(p.get('resolution')), 'HOLD resolution required')
+        require(not gate_checkpoints.pending_hold(state), 'checkpoint the gate HOLD before resuming')
         require(not any(x['status'] == 'confirmed-unresolvable' for x in state['blockers']), 'confirmed blocker remains')
+        result.update(director.require_resume(state, root, p))
         lc.update(status='active', hold_reason=None)
         return result
     if action == 'suspend-held':
-        require(lc['status'] == 'hold' and text(p.get('status_report')) and
-                (predicates(state)['confirmed_blocker'] or text(p.get('director_decision'))),
-                'need status report and confirmed blocker or director decision')
-        lc['status'] = 'suspended'
-        lc['status_report'] = p['status_report']
+        require(lc['status'] == 'hold' and (predicates(state)['confirmed_blocker'] or p.get('director_decision')),
+                'need a confirmed blocker or filed Director stop decision')
+        result.update(director.suspend(state, p, root))
+        lc.update(status='suspended', status_report=p['status_report'])
         return result
     if action == consultations.CONFIGURE:
         return result | consultations.configure(state, p, root)
@@ -170,21 +237,28 @@ def advance(state, action, p, now, root, *, op_id):
         return result | hub_publication.advance(state, action, p, root, op_id)
     if action == consultations.RESERVE:
         if p.get('purpose') == 'gate':
+            require(not gate_checkpoints.pending_hold(state),
+                    'checkpoint the automatic gate HOLD before reserving another gate review')
+            director.require_work(state, root, gate=True)
             hub_publication.require_idle(state)
             manifest = p.get('manifest')
             require(isinstance(manifest, dict) and text(manifest.get('gate')) and text(manifest.get('phase')),
                     'provide an exact gate manifest')
             gate, phase = manifest['gate'], manifest['phase']
-            review_slot(state, gate, phase)
+            review_slot(state, gate, phase, root)
             require('pending_inner_attempt' not in lc, 'reconcile the pending inner attempt before gate review')
-            check_manifest(manifest, gate, phase, root)
+            check_submission(state, manifest, gate, phase, root)
             manifest_identity(state, manifest)
-            knowledge.require_current(state, root, manifest, p.get('okf_check'))
+            require_services(state, root, manifest, p.get('okf_check'))
             task_readiness.check_gate(state, {'assessment_id': p.get('assessment_id'), 'gate': gate, 'phase': phase}, root)
             if phase == 'readiness':
                 check_readiness(state, manifest, root)
             elif phase == 'complete':
                 latest_approval(state, 'readiness', root)
+        elif director.entries(state):
+            assessment = task_readiness.lookup(state, p.get('assessment_id'))
+            director.require_work(state, root, task=assessment['assessment']['beads_task_id'],
+                                  assessment_id=p.get('assessment_id'), dispatch=True)
         return consultations.reserve(state, p, root)
     if action == consultations.REUSE:
         return result | consultations.reuse(state, p, root)
@@ -196,6 +270,7 @@ def advance(state, action, p, now, root, *, op_id):
         lc['stage'] = 'SCOPING'
     elif action == 'start-planning':
         require(lc['stage'] == 'SCOPING' and text(p.get('charter_ref')), 'expected SCOPING with charter')
+        result.update(gate_checkpoints.verify(state, action, p, op_id, root))
         state['identity']['charter_ref'] = p['charter_ref']
         budget = state['budgets']['outer_cycles']
         if budget['used'] == 0:
@@ -229,9 +304,9 @@ def advance(state, action, p, now, root, *, op_id):
         key, original = approved_record(state, 'readiness')
         require(p.get('review_id') == key, 'reuse must name the latest routed readiness approval of this cycle')
         current, proof = p.get('manifest'), p.get('proof')
-        check_manifest(current, 'PLAN_GATE', 'readiness', root)
+        check_submission(state, current, 'PLAN_GATE', 'readiness', root)
         manifest_identity(state, current)
-        knowledge.require_current(state, root, current, p.get('okf_check'))
+        require_services(state, root, current, p.get('okf_check'))
         check_readiness(state, current, root)
         if previous := prior_reuse(state, key):
             old_info = previous['manifest']['readiness']
@@ -243,14 +318,18 @@ def advance(state, action, p, now, root, *, op_id):
         check_consumer(state['execution'], key, root)
         check_consumer(state['execution'], op_id, root)
         readiness.check_reuse(state, root, original['manifest'], current, proof)
+        result.update(gate_checkpoints.verify(state, action, p, op_id, root, manifest=current,
+                                              okf_check=p.get('okf_check')))
         lc['stage'] = 'EVALUATING'
         result.update(review_id=key, manifest=current, proof=proof, okf_check=p.get('okf_check'))
     elif action == knowledge.ACTION:
         manifest = p.get('manifest')
         require(isinstance(manifest, dict), 'provide an exact gate manifest for the OKF check')
         gate, phase = manifest.get('gate'), manifest.get('phase')
-        check_manifest(manifest, gate, phase, root)
+        check_submission(state, manifest, gate, phase, root)
         require(lc['stage'] in STAGE[phase], 'OKF check must target a manifest for the current stage')
+        if phase in ('cycle', 'report'):
+            director.require_brief(state, root)
         result.update(cycle=cycle, **knowledge.run_gate_check(state, root, manifest, p))
     elif action == 'record-consultation':
         require(ident(p.get('id')) and not any(c['id'] == p['id'] for c in state['consultations']) and
@@ -278,7 +357,7 @@ def advance(state, action, p, now, root, *, op_id):
     elif action == 'gate-review':
         key, gate, phase, run, manifest = (p.get(k) for k in ('id', 'gate', 'phase', 'advisor_run_id', 'manifest'))
         require(ident(key) and key not in db and text(gate) and text(phase), 'invalid review ID or gate/phase')
-        review_slot(state, gate, phase)
+        review_slot(state, gate, phase, root)
         if 'assessment_id' in p:
             task_readiness.check_gate(state, p, root)
         if phase == 'readiness':
@@ -290,17 +369,23 @@ def advance(state, action, p, now, root, *, op_id):
         issue = p.get('failure')
         try:
             require(not issue and accounting.get('usable', True), 'Advisor run did not yield a usable in-limit verdict')
-            check_manifest(manifest, gate, phase, root)
+            check_submission(state, manifest, gate, phase, root)
             manifest_identity(state, manifest)
-            knowledge.require_current(state, root, manifest, p.get('okf_check'))
+            require_services(state, root, manifest, p.get('okf_check'))
             if phase == 'readiness':
                 check_readiness(state, manifest, root)
             require(ident(run) and not any(r.get('advisor_run_id') == run for r in db.values()) and
                     not any(c.get('run_id') == run and c['kind'] == 'advice' for c in state['consultations']),
                     'unique exact Advisor run ID required; advice is not a verdict')
             check_consumer(state['execution'], key, root)
-            verdict = validate_verdict(p.get('verdict'), gate, manifest['id'])
-            issue = None
+            candidate = validate_verdict(p.get('verdict'), gate, manifest['id'])
+            if phase == 'cycle' and candidate == 'approve':
+                pred = predicates(state)
+                mandatory = ('report' if pred['objective_achieved'] and not lc.get('diagnosis_only') else
+                             'stop' if pred['cycle_cap'] or pred['early_stagnation'] else None)
+                require(not mandatory or manifest['proposed_route'] == mandatory,
+                        f'cycle proposal must cover the {mandatory} route required by current predicates')
+            verdict, issue = candidate, None
         except (ValueError, OSError, TimeoutExpired) as exc:
             require(text(issue) or p.get('verdict') is not None, 'record a failure reason when no verdict was returned')
             issue = issue or str(exc)
@@ -310,8 +395,7 @@ def advance(state, action, p, now, root, *, op_id):
         if 'assessment_id' in p:
             db[key]['assessment_id'] = p['assessment_id']
         if verdict in ('none', 'block'):
-            lc.update(status='hold', hold_reason=f'{gate}/{phase}: {issue or verdict}')
-            db[key]['route'] = 'hold'
+            db[key].update(route='hold', checkpoint_pending=True, hold_reason=issue or verdict)
         result['record_id'] = key
         result['verdict'] = verdict
     elif action == 'withdraw-stale-review':
@@ -330,9 +414,9 @@ def advance(state, action, p, now, root, *, op_id):
         consultations.check_review(state, r, root)
         if 'assessment_id' in r:
             task_readiness.check_gate(state, r, root)
-        check_manifest(r['manifest'], gate, phase, root)
+        check_submission(state, r['manifest'], gate, phase, root)
         okf_check = p.get('okf_check', r.get('okf_check'))
-        knowledge.require_current(state, root, r['manifest'], okf_check)
+        require_services(state, root, r['manifest'], okf_check)
         require(r.get('basis') == review_basis(state, phase), 'gate input state changed; re-review the submission')
         if phase == 'readiness':
             check_readiness(state, r['manifest'], root)
@@ -380,11 +464,16 @@ def advance(state, action, p, now, root, *, op_id):
                     require(route == 'hold', 'no authorized forward route')
         else:
             raise ValueError('no valid verdict')
+        if phase == 'cycle' and v == 'approve' and route in ('replan', 'report', 'stop'):
+            require(r['manifest']['proposed_route'] == route, 'approved cycle proposal must match the forward route')
         if route == 'hold':
             require(text(p.get('reason')), 'HOLD reason required')
-            lc.update(status='hold', hold_reason=p['reason'])
         elif route == 'stop':
-            require(text(p.get('status_report')), 'terminal stop requires a status report')
+            require(text(p.get('status_report')), 'terminal stop requires a pinned status report file')
+        result.update(gate_checkpoints.verify(state, action, p, op_id, root, manifest=r['manifest'], okf_check=okf_check))
+        if route == 'hold':
+            r['hold_reason'] = p['reason']
+        elif route == 'stop':
             lc.update(status='suspended', status_report=p['status_report'])
         elif route == 'replan':
             state['budgets']['outer_cycles']['used'] += 1
@@ -409,14 +498,25 @@ def advance(state, action, p, now, root, *, op_id):
 
 def candidates(state, root):
     lc = state['lifecycle']
+    if hold := gate_checkpoints.pending_hold(state):
+        return [{'action': gate_checkpoints.HOLD, 'review_id': hold, 'basis': 'checkpoint the immediate gate HOLD'}]
     if lc['status'] == 'suspended' or lc['stage'] == 'COMPLETED':
         return []
+    if issues := gate_checkpoints.history_flags(state, root):
+        return [{'action': 'reconcile-gate-checkpoint', 'basis': issues[0]}]
+    if holds := gate_holds(state):
+        return [{'action': 'resolve-gate-hold', 'review_id': key,
+                 'basis': f"{row['gate']}/{row['phase']} is held; independent work may continue"} for key, row in holds]
     if publication := hub_publication.view(state)['pending']:
         return [{'action': 'reconcile-okf-publication', 'basis': 'hub publication is pending', **publication}]
     if pending := lc.get('pending_inner_attempt'):
         return [{'action': 'reconcile-inner-attempt', 'basis': 'implementation accounting is pending', **pending}]
     if lc['status'] == 'hold':
         return [{'action': 'triage-hold', 'basis': lc.get('hold_reason')}]
+    pending_director = [r['id'] for r in director.entries(state) if r['tag'] == 'DECISION-REQUIRED' and r['status'] == 'open']
+    if pending_director:
+        return [{'action': 'reconcile-director-decision', 'decision_id': key,
+                 'basis': 'gate advancement paused; independent in-scope work may continue'} for key in pending_director]
     stale = {flag['review_id'] for flag in flags(state, root, include_nonapproval=True)}
     pending = [(key, r) for key, r in state['gate_reviews'].items()
                if r['cycle'] == lc['outer_cycle'] and r['route'] is None]
@@ -451,9 +551,9 @@ def flags(state, root, include_nonapproval=False):
                 require(key == latest_key, 'newer readiness review supersedes this reuse')
                 latest_approval(state, 'readiness', root)
             else:
-                check_manifest(r['manifest'], r['gate'], r['phase'], root)
+                check_submission(state, r['manifest'], r['gate'], r['phase'], root)
                 if r['route'] is None and not hub_publication.pending(state):
-                    knowledge.require_current(state, root, r['manifest'], r.get('okf_check'))
+                    require_services(state, root, r['manifest'], r.get('okf_check'))
                 if r['phase'] == 'readiness':
                     check_readiness(state, r['manifest'], root)
         except (ValueError, OSError, TimeoutExpired) as exc:

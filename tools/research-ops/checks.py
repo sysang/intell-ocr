@@ -19,12 +19,18 @@ def load(path):
 
 
 def manifest(root, args):
+    roles = load(args.artifact_roles)
+    require(isinstance(roles, dict) and all(isinstance(p, str) for p in roles.values()),
+            '--artifact-roles must be a JSON object mapping roles to paths')
+    extra = load(args.phase_evidence) if args.phase_evidence else {}
+    allowed = {'cycle': {'proposed_route', 'next_plan', 'replan_rationale'}, 'diagnosis': {'diagnosis'}}
+    require(isinstance(extra, dict) and set(extra) <= allowed.get(args.phase, set()), 'unexpected phase evidence fields')
     files = {}
-    for name in sorted(set(args.paths)):
+    for name in sorted(set(args.paths) | set(roles.values())):
         path = (root / name).resolve(strict=True)
         require(path.is_relative_to(root) and path.is_file(), f'outside project or not a file: {name}')
         files[path.relative_to(root).as_posix()] = file_sha(path)
-    result = {'id': args.id, 'gate': args.gate, 'phase': args.phase, 'artifacts': files}
+    result = {'id': args.id, 'gate': args.gate, 'phase': args.phase, 'artifacts': files, 'artifact_roles': roles, **extra}
     if args.phase == 'protocol':
         result['required_tests'] = args.required_test
     elif args.phase == 'readiness':
@@ -89,7 +95,9 @@ def main():
     m.add_argument('gate')
     m.add_argument('phase')
     m.add_argument('id')
-    m.add_argument('paths', nargs='+')
+    m.add_argument('paths', nargs='*', help='additional project-relative files to hash')
+    m.add_argument('--artifact-roles', type=Path, required=True, help='JSON map of required roles to project paths')
+    m.add_argument('--phase-evidence', type=Path, help='JSON containing cycle proposal or diagnosis fields')
     m.add_argument('--required-test', action='append', default=[])
     m.add_argument('--readiness-evidence', type=Path)
     p = sub.add_parser('readiness-diff')

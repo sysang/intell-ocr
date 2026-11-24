@@ -8,7 +8,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import consultations
+import director
 import evidence
+import gate_checkpoints
 import gates
 import hub_publication
 import snapshot_schema
@@ -93,14 +95,32 @@ def validate(state):
                              start['action'] == 'begin-inner-attempt' and start['cycle'] == cycle and
                              start['base_revision'] == base and start['start_op_id'] == pending['start_op_id'],
                              'invalid pending inner attempt binding')
-        for review in state['gate_reviews'].values():
+        evidence.require(sum(bool(row.get('checkpoint_pending')) for row in state['gate_reviews'].values()) <= 1,
+                         'multiple pending gate HOLD checkpoints')
+        for review_id, review in state['gate_reviews'].items():
+            if review.get('checkpoint_pending'):
+                evidence.require(review['route'] == 'hold' and review['verdict'] in ('block', 'none') and
+                                 review['cycle'] == cycle and lc['status'] in ('active', 'hold', 'suspended'),
+                                 'invalid pending gate HOLD checkpoint')
             evidence.require(review['phase'] in gates.PHASES[review['gate']] and review['cycle'] <= cycle,
                              'invalid gate review phase or cycle')
             if review['verdict'] != 'none':
                 evidence.require(all(review[field] == review['manifest'][field] for field in ('gate', 'phase')),
                                  'gate review manifest binding mismatch')
+            evidence.require(not review.get('gate_hold_resolution') or review['route'] == 'hold',
+                             'gate HOLD resolution is only valid for a held review')
+            if review.get('gate_hold_resolution'):
+                resolved = state['operations'][review['gate_hold_resolution']]
+                prior = next((op for op in state['operations'].values() if op['group'] == 'lifecycle' and
+                              op['action'] == 'gate-review' and op.get('record_id') == review_id), None)
+                evidence.require(review['route'] == 'hold' and not review.get('checkpoint_pending') and prior and
+                                 resolved['group'] == 'lifecycle' and resolved['action'] == 'resolve-gate-hold' and
+                                 resolved['record_id'] == review_id and prior['revision'] < resolved['revision'] and
+                                 bool(review.get('gate_hold_evidence')),
+                                 'invalid scoped gate HOLD resolution')
         task_readiness.validate(state)
         consultations.validate(state)
+        director.validate(state)
         hub_publication.operation_state(state)
         db = state['execution']
         evidence.require(set(db) == set(evidence.KINDS) and all(isinstance(rows, dict) for rows in db.values()), 'invalid evidence tables')
@@ -144,6 +164,12 @@ def apply(state, group, action, payload, op_id, expected, actor, reason, now, ro
         evidence.require(old['fingerprint'] == fingerprint, 'operation ID reused with different input')
         return None, {**old, 'replayed': True, 'launch_eligible': False}
     evidence.require(expected == state['revision'], f"revision conflict; current={state['revision']}")
+    activates_work = (action in ('issue', 'mark-ready', 'reserve') if group == 'evidence' else
+                     action in ('resolve-hold', 'begin-inner-attempt', 'return-to-implementation', consultations.RESERVE))
+    if activates_work:
+        evidence.require(not gate_checkpoints.pending_hold(state),
+                         'checkpoint the immediate gate HOLD before starting other work')
+        gate_checkpoints.require_history(state, root)
     new = copy.deepcopy(state)
     if group == 'evidence':
         if action == task_readiness.ACTION:
@@ -154,6 +180,8 @@ def apply(state, group, action, payload, op_id, expected, actor, reason, now, ro
             if action in ('issue', 'mark-ready', 'reserve'):
                 brief = (payload if action == 'issue' else evidence.find(new['execution'], 'briefs',
                          payload.get('id' if action == 'mark-ready' else 'revision_id')))
+                director.require_work(new, root, task=brief.get('beads_task_id'),
+                                      assessment_id=brief.get('assessment_id'), dispatch=True)
                 task_readiness.check_assignment(new, brief, root)
             receipt = evidence.transition(new, action, payload, now, root)
     else:
