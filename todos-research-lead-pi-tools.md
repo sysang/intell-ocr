@@ -46,7 +46,7 @@ All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + 
 ## Phase 1 — Extension scaffold (thin wrappers, agreed sequence)
 - [ ] Create `.pi/extensions/research-ledger-tools/` with `index.ts` + `package.json` if needed; verify auto-discovery; add `tsconfig` + `node --test` harness entries.
 - [ ] Thin wrappers first (no logic port): one wrapper per agreed group (`ledger_read`, `ledger_task`, `ledger_gate`, `ledger_consult`, `ledger_okf`, `ledger_director`, `ledger_inner`, `checks`) calling the Python CLI via subprocess with the same JSON schemas the port will keep. Start with read-only `ledger_read` (`status`/`next`) to validate gating, schema plumbing, and harness, then add groups in strangler order.
-- [ ] Capture golden vectors from Python now (10 agreed: 5 happy + 5 refusal/HOLD) as `golden/` input+output+revision JSON; freeze Python (`tag oracle`) until capture is done.
+- [x] Capture normalized golden traces from the committed Python oracle `3ebe866` under `golden/`: eight existing `test_managed.py` scenarios (cycle charging, gate HOLD, reservation replay/restart, inner charge, wrong IDs, mandatory advice, protocol roles, Director tag) plus exact canonical JSON/hash/rejection vector. Timestamps, temp paths and time-dependent operation fingerprints are normalized; canonical JSON bytes/digest remain exact. Python sources unchanged.
 - [ ] Add `route-governor`-style tests for gating (wrong PID, child env, wrong cwd, missing marker → refused).
 
 ## Phase 2 — Lead-critical port only (scope narrowed)
