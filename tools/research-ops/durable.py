@@ -7,8 +7,12 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+import consultations
 import evidence
 import gates
+import hub_publication
+import snapshot_schema
+import task_readiness
 
 
 @contextmanager
@@ -40,27 +44,64 @@ def save(path, value):
 def new_state(project_id, objectives, outer, inner, charter, stagnation):
     evidence.require(evidence.ident(project_id) and evidence.texts(objectives) and objectives and
                      3 <= outer <= 5 and inner > 0 and stagnation >= 2, 'invalid project initialization')
-    return {'format': 1, 'revision': 0, 'operations': {}, 'execution': evidence.empty(), 'gate_reviews': {},
+    state = {'format': 1, 'revision': 0, 'operations': {}, 'execution': evidence.empty(), 'gate_reviews': {},
             'policy': {'inner_limit': inner, 'stagnation_cycles': stagnation},
             'identity': {'project_id': project_id, 'charter_ref': charter, 'protocol_version': '1'},
             'lifecycle': {'stage': 'CREATED', 'status': 'active', 'outer_cycle': 1, 'inner_attempt': 0, 'plan_version': 'v1'},
-            'budgets': {'outer_cycles': {'max': outer, 'used': 1}},
+            'budgets': {'outer_cycles': {'max': outer, 'used': 0}},
             'objectives': [{'id': f'O-{i}', 'text': o, 'status': 'untested', 'evidence_refs': []}
                            for i, o in enumerate(objectives, 1)],
             'assignments': [], 'progress_verdicts': [], 'gates': {}, 'blockers': [], 'consultations': [], 'decisions': []}
+    problems = validate(state)
+    evidence.require(not problems, '; '.join(problems))
+    return state
 
 
 def validate(state):
+    if problems := snapshot_schema.violations(state):
+        return problems
     try:
         evidence.require(type(state['format']) is int and state['format'] == 1 and
                          type(state['revision']) is int and state['revision'] >= 0 and
                          not state['assignments'], 'unsupported format or legacy assignment records present')
-        evidence.require(isinstance(state['gate_reviews'], dict) and isinstance(state['operations'], dict) and
-                         sorted(r['revision'] for r in state['operations'].values()) == list(range(1, state['revision'] + 1)),
+        ops = state['operations']
+        evidence.require(all(key == row['op_id'] for key, row in ops.items()) and len(ops) == state['revision'] and
+                         all(r['revision'] == i for i, r in enumerate(sorted(ops.values(), key=lambda r: r['revision']), 1)),
                          'missing or invalid operation receipts')
         evidence.require(all(type(state['policy'][k]) is int and state['policy'][k] >= lower
                              for k, lower in (('inner_limit', 1), ('stagnation_cycles', 2))), 'invalid policy limits')
-        evidence.require(state['budgets']['outer_cycles']['used'] == state['lifecycle']['outer_cycle'], 'cycle charge mismatch')
+        lc = state['lifecycle']
+        budget, cycle = state['budgets']['outer_cycles'], lc['outer_cycle']
+        used = budget['used']
+        evidence.require(used <= budget['max'], 'used cycles exceed the charter limit')
+        evidence.require(lc['inner_attempt'] <= state['policy']['inner_limit'], 'used inner attempts exceed the policy limit')
+        evidence.require(lc['status'] != 'suspended' or lc['stage'] == 'COMPLETED' or evidence.text(lc.get('status_report')),
+                         'SUSPENDED with no status report')
+        evidence.require(all(o['status'] != 'met' or o['evidence_refs'] for o in state['objectives']),
+                         'objective marked met with no evidence_refs')
+        # Pre-planning snapshots from the old initializer already show cycle 1 charged.
+        before_planning = lc['stage'] in ('CREATED', 'SCOPING')
+        evidence.require(type(used) is int and type(cycle) is int and
+                         (cycle == 1 and used in (0, 1) if before_planning else cycle >= 1 and used == cycle),
+                         'cycle charge mismatch')
+        if 'pending_inner_attempt' in lc:
+            pending = lc['pending_inner_attempt']
+            base = pending['base_revision']
+            start = state['operations'][pending['start_op_id']]
+            evidence.require(lc['stage'] == 'IMPLEMENTING' and set(pending) == {'start_op_id', 'base_revision'} and
+                             evidence.GIT_HASH.fullmatch(base) and start['group'] == 'lifecycle' and
+                             start['action'] == 'begin-inner-attempt' and start['cycle'] == cycle and
+                             start['base_revision'] == base and start['start_op_id'] == pending['start_op_id'],
+                             'invalid pending inner attempt binding')
+        for review in state['gate_reviews'].values():
+            evidence.require(review['phase'] in gates.PHASES[review['gate']] and review['cycle'] <= cycle,
+                             'invalid gate review phase or cycle')
+            if review['verdict'] != 'none':
+                evidence.require(all(review[field] == review['manifest'][field] for field in ('gate', 'phase')),
+                                 'gate review manifest binding mismatch')
+        task_readiness.validate(state)
+        consultations.validate(state)
+        hub_publication.operation_state(state)
         db = state['execution']
         evidence.require(set(db) == set(evidence.KINDS) and all(isinstance(rows, dict) for rows in db.values()), 'invalid evidence tables')
         ids = set()
@@ -104,8 +145,21 @@ def apply(state, group, action, payload, op_id, expected, actor, reason, now, ro
         return None, {**old, 'replayed': True, 'launch_eligible': False}
     evidence.require(expected == state['revision'], f"revision conflict; current={state['revision']}")
     new = copy.deepcopy(state)
-    handler = evidence.transition if group == 'evidence' else gates.advance
-    receipt = handler(new, action, payload, now, root)
+    if group == 'evidence':
+        if action == task_readiness.ACTION:
+            receipt = {'launch_eligible': False, **task_readiness.assess(new, payload, root)}
+            if receipt['advisor_need'] == 'gate':
+                gates.check_task_target(new, payload['gate'])
+        else:
+            if action in ('issue', 'mark-ready', 'reserve'):
+                brief = (payload if action == 'issue' else evidence.find(new['execution'], 'briefs',
+                         payload.get('id' if action == 'mark-ready' else 'revision_id')))
+                task_readiness.check_assignment(new, brief, root)
+            receipt = evidence.transition(new, action, payload, now, root)
+    else:
+        if action == 'record-consultation' and 'assessment_id' in payload:
+            task_readiness.check_advice(new, payload, root)
+        receipt = gates.advance(new, action, payload, now, root, op_id=op_id)
     new['revision'] += 1
     receipt.update(revision=new['revision'], op_id=op_id, fingerprint=fingerprint,
                    group=group, action=action, actor=actor, reason=reason, at=now, replayed=False)

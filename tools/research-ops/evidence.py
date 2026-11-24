@@ -167,7 +167,7 @@ def transition(state, action, p, now, root):
                     'criteria', 'exclusions', 'source_versions', 'read_paths', 'modify_paths',
                     'commands', 'external_actions', 'tools', 'attempt_limit', 'soft_seconds', 'hard_seconds')
         require(set(required) <= p.keys() and not p.keys() - {*required, 'id', 'previous_revision',
-                'base_revision', 'verification_exemption', 'routing_reason'}, 'incomplete brief or unknown fields')
+                'base_revision', 'verification_exemption', 'routing_reason', 'assessment_id'}, 'incomplete brief or unknown fields')
         require(ident(p['assignment_id']) and isinstance(p['beads_task_id'], str) and
                 TASK_ID.fullmatch(p['beads_task_id']) and ident(p['assignee']), 'invalid brief identifiers')
         require(p['assignee'] == 'engineering-worker' or

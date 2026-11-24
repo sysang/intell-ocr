@@ -6,13 +6,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from urllib.parse import unquote
 
 from evidence import FIXED, date, digest, file_sha, ident, require, text, texts
 from gates import check_manifest, validate_verdict
+from knowledge import hub_fingerprint, okf_precheck
 from ledger import check_invariants, load_state, now_iso
-
-REPO = Path(__file__).resolve().parents[2]
+from readiness import source_diff
 
 
 def load(path):
@@ -26,6 +25,11 @@ def manifest(root, args):
         require(path.is_relative_to(root) and path.is_file(), f'outside project or not a file: {name}')
         files[path.relative_to(root).as_posix()] = file_sha(path)
     result = {'id': args.id, 'gate': args.gate, 'phase': args.phase, 'artifacts': files}
+    if args.phase == 'protocol':
+        result['required_tests'] = args.required_test
+    elif args.phase == 'readiness':
+        require(args.readiness_evidence, 'pass --readiness-evidence with the readiness JSON object')
+        result['readiness'] = load(args.readiness_evidence)
     check_manifest(result, args.gate, args.phase, root)
     return result
 
@@ -38,36 +42,6 @@ def coverage(root, reviewed, current):
     metadata_changed = {k: v for k, v in reviewed.items() if k not in ('artifacts', 'id')} != {
         k: v for k, v in current.items() if k not in ('artifacts', 'id')}
     return {'covers_same_bytes': not (changed or metadata_changed), 'changed': changed, 'metadata_changed': metadata_changed}
-
-
-def okf_precheck(root, result, reader=None):
-    writer = REPO / '.pi/agents/okf-writer/validate_okf.py'
-    commands = [([writer, 'bundle', root], None), ([writer, 'result', result], None)]
-    if reader:
-        commands.append(([REPO / '.pi/agents/okf-reader/validate_result.py'], reader.read_text()))
-    reports = []
-    for command, data in commands:
-        p = subprocess.run([sys.executable, '-B', *(str(x) for x in command)], capture_output=True, text=True,
-                           input=data, timeout=12)
-        require(p.returncode == 0, (p.stdout or p.stderr)[-1500:])
-        reports.append(json.loads(p.stdout))
-    body = load(result)
-    require(body['status'] == 'committed' and not body['revision']['git_commit_made'], 'writer has not published a clean result')
-    for name in set(body['created'] + body['updated'] + body['deprecated']):
-        path = (root / name).resolve()
-        require(path.is_relative_to(root) and path.is_file(), f'result references missing bundle file: {name}')
-    links = set()
-    for index in root.rglob('index.md'):
-        for target in re.findall(r'^\s*[-*+]\s+\[[^\]]+\]\(([^)]+)\)', index.read_text(), re.M):
-            target = unquote(target.split('#', 1)[0])
-            if ':' not in target and target:
-                actual = (index.parent / target).resolve()
-                require(actual.is_relative_to(root) and actual.exists(), f'broken or out-of-bundle index link: {target}')
-                links.add(actual)
-    for name in body['created']:
-        if Path(name).suffix == '.md' and Path(name).name not in ('index.md', 'log.md'):
-            require((root / name).resolve() in links, f'created concept missing from indexes: {name}')
-    return {'checks': reports, 'created_files_checked': len(body['created'])}
 
 
 def pool_profile(approval, observation):
@@ -116,6 +90,12 @@ def main():
     m.add_argument('phase')
     m.add_argument('id')
     m.add_argument('paths', nargs='+')
+    m.add_argument('--required-test', action='append', default=[])
+    m.add_argument('--readiness-evidence', type=Path)
+    p = sub.add_parser('readiness-diff')
+    p.add_argument('root', type=Path)
+    p.add_argument('before')
+    p.add_argument('after')
     p = sub.add_parser('validate-verdict')
     p.add_argument('root', type=Path)
     p.add_argument('gate')
@@ -130,6 +110,8 @@ def main():
     p.add_argument('root', type=Path)
     p.add_argument('writer_result', type=Path)
     p.add_argument('--reader-result', type=Path)
+    p = sub.add_parser('okf-hub-snapshot')
+    p.add_argument('project', type=Path)
     p = sub.add_parser('freshness-flags')
     p.add_argument('state', type=Path)
     p.add_argument('snapshot', type=Path, help='JSON containing as_of, state_revision, and optional stale_after map')
@@ -141,6 +123,9 @@ def main():
     try:
         if a.command == 'manifest':
             output = manifest(a.root.resolve(), a)
+        elif a.command == 'readiness-diff':
+            sys.stdout.buffer.write(source_diff(a.root.resolve(), a.before, a.after))
+            return 0
         elif a.command == 'validate-verdict':
             m = load(a.manifest)
             check_manifest(m, a.gate, a.phase, a.root)
@@ -149,6 +134,8 @@ def main():
             output = coverage(a.root, load(a.reviewed), load(a.current))
         elif a.command == 'okf-gate-precheck':
             output = okf_precheck(a.root.resolve(), a.writer_result, a.reader_result)
+        elif a.command == 'okf-hub-snapshot':
+            output = {'hub_sha256': hub_fingerprint(a.project.resolve())}
         elif a.command == 'check-pool-profile':
             output = pool_profile(load(a.approval), load(a.observation))
         else:

@@ -12,23 +12,34 @@
 - [x] Add managed project-state initialization, serialized atomic writes, expected revision checks, and durable operation receipts. Keep historical snapshots readable; legacy `advance` is dry-run only.
 - [x] Record issued revisions, READY, launch reservations, Pi run references, outcome/termination, effect reconciliation, results, decisions, and availability. Implement exact retrieval and transitive invalidation on supersession. Store facts separately from Lead assertions.
 - [x] Test stale/op-ID replay, concurrent reservations, interruption before and after dispatch (simulated observations), hard cutoff vs termination, wrong/late results, real Git checkpoint, and superseded evidence.
+- [x] Record seven-dimension readiness and fixed-roster-first routing per meaningful task. Bind Worker/pool dispatch to a current assessment, and require recorded Advisor follow-up for declared material triggers before reassessing READY. Direct work and other fixed-role calls follow the Lead prompt; fixture checks do not enforce host behavior.
 - [x] Exercise pinned Pi startup with disposable project bindings: nine tools present in the bound Lead session, absent for an unbound session and an inherited child environment. Verify with the SDK that none appears in the callable-tool registry used by `codemode`. The probes only run from test fixtures; actual child confinement is still open.
 
 ## 2. Main-session lifecycle and onboarding
 
 - [x] Implement phase-bound gate review and guarded routes, separate protocol/readiness approvals, no-verdict HOLD, bounded review recovery, cycle authorization/charging, terminal stop vs completed report, and cap/stagnation predicates.
 - [x] Exercise project initialization through final report with simulated reviews, including final-cycle achievement and stale manifest refusal.
+- [x] Charge cycle 1 on initial planning, not bootstrap or scoping. Test exact replay, a blocked protocol review, and compatibility with snapshots that already consumed cycle 1 at initialization.
+- [x] Bind inner-attempt charges to committed implementation changes from a pinned cycle-workspace base. Test replay, interruptions with no integrated change, pending gate refusal, and the inner-attempt cap using disposable Git repositories.
 - [x] Add project bootstrap and launcher with explicit SQLite binding, static preflight, and hash-checked operator observations for deployment opt-in. Keep static checks distinguishable from the effective runtime roster.
 - [x] Implement manifest hashing, verdict validation, manifest drift review, freshness flags, and OKF gate precheck using existing validators.
 - [x] Align the Lead/Worker prompts, bootstrap artifact layout, blueprint implementation pointers, and operations runbook. Verify a fresh bootstrap in an isolated repository.
 - [x] Add §12.4 fixture regressions: final-cycle report, in-plan repair vs forbidden replan at the cap, `block` precedence, malformed review with bounded recovery, stale review replacement, and independent work during another assignment's recovery.
-- [ ] Add formal schema validation across managed snapshots and broader §12.4 fault coverage (readiness reuse/drift and real persisted runtime artifacts).
+- [x] Bind readiness to the approved protocol’s required tests, tested Git baseline, and pinned output evidence. Validate exact readiness reuse evidence and refuse stale coverage in disposable Git fixtures.
+- [x] Require bound OKF validator results for managed cycle, report, and declared service-dependent gate inputs. Refuse missing, mismatched, or stale checks in disposable hub fixtures.
+- [x] Enforce managed single-writer hub publication: one bound Lead launcher per project, one staged request at a time, an exact base/target ledger checkpoint, and refusal to advance while publication is unresolved. Test local process interruption during publication and recovery; this is not live child confinement or a Git checkpoint.
+- [x] Apply the bundled Draft 2020-12 JSON Schema and cross-record checks to managed initialization, reads, startup, and writes. Verify rejection of malformed state, missing validator, ambiguous JSON, and invalid receipt bindings without mutating the snapshot. Legacy snapshots still use their read-only compatibility path.
+- [ ] Enforce required gate artifacts and gate/cycle Git checkpoints; broaden §12.4 fault coverage, including real persisted runtime artifacts.
+- [ ] Add durable Director decision, communication, escalation, and stop records and check their required publication/index evidence.
+- [x] Document the versioned consultation brief, quality checklist, and evidence-first two-pass procedure for high-risk reviews. Record exact task-linked advice and Lead disposition. The two-pass procedure is prompt/runbook guidance, not an enforced runtime constraint.
+- [x] Separate required and exploratory Advisor call allowances; guard reservations with per-call and per-issue limits, record observed and missing usage, and restrict reuse to unchanged exploratory advice without contradictory checks. Verify with simulated results; production measurement and external quota enforcement remain deployment checks.
 
 ## 3. Execution and deployment verification
 
 - [ ] In the selected deployment, verify the pinned versions, trust scope, discovery and exclusions, exact provider/model and override source for all seven fixed roles, tool exposure (including indirect calls), fresh context, and response schema behavior. Capture actual smoke-run and inspection artifacts per role.
 - [ ] Verify durable dispatch correlation, process exit, and workspace/external effects against real Pi runs. Test host interruption before launch, after launch before recording run ID, after writes, and after integration but before Beads closure. Leave uncertain launches blocked rather than retrying blindly.
 - [ ] Verify per-package file/command/network confinement and Worker → architect-only nesting with direct and `codemode` probes. Prompt allowances and an exposure unit test are not OS sandboxing. Do not enable production delegation while these checks are missing.
+- [ ] In the approved runtime, verify stage-only OKF writer confinement and exact writer exit/correlation; exercise interruption and recovery. Retain the `okf_publication_recovery` evidence required by the runtime attestation.
 - [x] Add a pool-profile comparison check and fixture tests for model drift and indirect delegation. It compares supplied effective capability records; it does not resolve profiles or verify their confinement.
 - [ ] Run a single-writer Worker pilot followed by an operator-approved read-only pool pilot. Validate actual resolved profiles, ambiguity refusal, and failure isolation against real launch evidence. Add concurrency only after the single-writer path and required confinement tests pass.
 
@@ -47,8 +58,10 @@
 - [x] Document the deployment sequence, evidence needed for recovery, and the procedure for a missing Beads close. Documentation does not prove execution correlation.
 - [ ] Run and revise the incident runbook against the pinned live environment; capture a recovery report and objective exit evidence.
 
-**Local verification:** 30 research-ops Python tests, 14 existing OKF validator tests, 2 native Beads integration tests, and strict TypeScript compilation passed. TypeScript check: `.pi/node_modules/.bin/tsc --noEmit -p .pi/extensions/tests/tsconfig.json` with TypeScript 5.9.3 and `@types/node` 22.19.19. The Python suite includes a real Pi CLI/SDK exposure probe and real Git integration; execution and gate observations remain fixture data. A disposable TypeScript runtime smoke also confirmed workflow transpilation; the repository's launcher integration test still requires its absent `agent-collaboration/code-analysis` project fixtures.
+**Local verification:** 62 research-ops Python tests, 14 existing OKF validator tests, 2 native Beads integration tests, and strict TypeScript compilation passed. TypeScript check: `.pi/node_modules/.bin/tsc --noEmit -p .pi/extensions/tests/tsconfig.json` with TypeScript 5.9.3 and `@types/node` 22.19.19. The Python suite includes a real Pi CLI/SDK exposure probe, real Git integration, a process-exec project lock test, and a ledger subprocess terminated after its first hub file replacement. Child execution and gate observations remain fixture data. A disposable TypeScript runtime smoke also confirmed workflow transpilation; the repository's launcher integration test still requires its absent `agent-collaboration/code-analysis` project fixtures.
 
 **Deployment constraint:** No `research-projects/` deployment/attestation or operator-approved confinement and pool profile was present in this checkout. No paid or live child runs were launched; deployment smoke, confinement probes, and Worker/pool pilots remain open.
 
-**Next:** (1) complete the operator-approved model and confinement probes in a disposable deployment, (2) perform the single-writer and approved read-only pool launch/recovery pilots, (3) continue authorized real-use development with operational evidence capture; schedule formal research/system evaluation after sufficient runtime evidence accumulates and before making effectiveness claims.
+**Next locally:** Required-artifact and gate/cycle Git checkpoint checks, broader fault coverage, and Director records.
+
+**Next for deployment:** (1) complete the operator-approved model and confinement probes in a disposable deployment, (2) perform the single-writer and approved read-only pool launch/recovery pilots, (3) continue authorized real-use development with operational evidence capture; schedule formal research/system evaluation after sufficient runtime evidence accumulates and before making effectiveness claims.

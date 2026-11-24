@@ -1,4 +1,5 @@
 """Credential-free smoke test of bootstrap and tool registration in pinned Pi, not agent runs."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,36 @@ NAMES = {'bd_create', 'bd_get', 'bd_query', 'bd_update', 'bd_close', 'bd_reopen'
 
 
 class BootstrapTest(unittest.TestCase):
+    def test_project_session_lock_survives_exec_and_releases_on_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            launcher = '''
+import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from research import exec_lead
+try:
+    exec_lead(Path(sys.argv[2]), sys.executable, [sys.executable, '-u', '-c',
+              'print("ready"); input()'], os.environ)
+except ValueError as exc:
+    print(exc)
+    sys.exit(1)
+'''
+            argv = [sys.executable, '-B', '-c', launcher, str(REPO / 'tools/research-ops'), tmp]
+            with subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as first:
+                try:
+                    self.assertEqual(first.stdout.readline().strip(), 'ready')
+                    refused = subprocess.run(argv, input='exit\n', capture_output=True, text=True, timeout=5)
+                    self.assertEqual(refused.returncode, 1)
+                    self.assertIn('another Research Lead session', refused.stdout)
+                    first.communicate('exit\n', timeout=5)
+                    self.assertEqual(first.returncode, 0)
+                finally:
+                    if first.poll() is None:
+                        first.kill()
+            successor = subprocess.run(argv, input='exit\n', capture_output=True, text=True, timeout=5)
+            self.assertEqual(successor.returncode, 0, successor.stderr)
+            self.assertEqual(successor.stdout.strip(), 'ready')
+
     @unittest.skipUnless(shutil.which('pi') and shutil.which('bd'), 'requires installed Pi and Beads')
     def test_bound_host_and_child_tool_registration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -33,6 +64,7 @@ class BootstrapTest(unittest.TestCase):
             project = Path(json.loads(out.stdout)['path'])
             self.assertTrue((project / 'src/experiments').is_dir())
             state = json.loads((project / 'project-state.json').read_text())
+            self.assertEqual((state['lifecycle']['stage'], state['budgets']['outer_cycles']['used']), ('CREATED', 0))
             self.assertTrue((project / state['identity']['charter_ref']).is_file())
             self.assertFalse((repo / '.beads').exists())
             p = subprocess.run([sys.executable, '-B', cli.with_name('ledger.py'), 'validate',
@@ -48,7 +80,20 @@ class BootstrapTest(unittest.TestCase):
                 blocked = subprocess.run([*lead_cli, 'lead', 'pilot', '--model', 'unused/local-fixture',
                                           '--enable-delegation'], **opts)
                 self.assertEqual(blocked.returncode, 1, blocked.stdout + blocked.stderr)
-                self.assertIn('attestation.json', json.loads(blocked.stdout)['refused'])
+                self.assertIn('consultation limits', json.loads(blocked.stdout)['refused'])
+                limits = {'calls': 2, 'attempts_per_issue': 2, 'per_call': {'tokens': 100, 'model_calls': 1, 'seconds': 10}}
+                lanes = {'mandatory': limits, 'exploratory': {**limits, 'calls': 0}}
+                approval = project / 'runtime/fixture-approval.json'
+                approval.write_text(json.dumps({'id': 'fixture', 'operator': 'fixture-only', **lanes}))
+                policy = {**lanes, 'approval': {'runtime/fixture-approval.json': hashlib.sha256(approval.read_bytes()).hexdigest()}}
+                subprocess.run([sys.executable, '-B', cli.with_name('ledger.py'), 'apply', project / 'project-state.json',
+                                'lifecycle', 'configure-consultations', '--input', '-', '--op-id', 'fixture-policy',
+                                '--expected-revision', '0', '--actor', 'fixture-only', '--reason', 'test launcher gate'],
+                               input=json.dumps(policy), check=True, **opts)
+                still_blocked = subprocess.run([*lead_cli, 'lead', 'pilot', '--model', 'unused/local-fixture',
+                                                '--enable-delegation'], **opts)
+                self.assertEqual(still_blocked.returncode, 1, still_blocked.stdout + still_blocked.stderr)
+                self.assertIn('attestation.json', json.loads(still_blocked.stdout)['refused'])
             probe_file = repo / 'probe.json'
             probe = repo / 'probe.ts'
             probe.write_text('''import { writeFileSync } from 'node:fs';

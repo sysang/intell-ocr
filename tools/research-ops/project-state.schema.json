@@ -1,9 +1,734 @@
-{"$comment": "Canonical schema for the research-project live ledger (project-state.json). Blueprint §8.8: this file is the formal state-machine snapshot — source of truth for process state. Concept records live in the OKF hub, never here. Validation is implemented natively in ledger.py (stdlib only); this document is the authority both must match.", "$id": "https://example.invalid/research-ops/project-state.schema.json", "additionalProperties": false, "dependentRequired": {"format": ["revision", "policy", "execution", "operations", "gate_reviews"]}, "properties": {
-  "format": {"const": 1}, "revision": {"type": "integer", "minimum": 0},
-  "policy": {"type": "object", "required": ["inner_limit", "stagnation_cycles"], "additionalProperties": false, "properties": {"inner_limit": {"type": "integer", "minimum": 1}, "stagnation_cycles": {"type": "integer", "minimum": 2}}},
-  "operations": {"type": "object", "additionalProperties": {"type": "object", "required": ["op_id", "revision", "fingerprint", "actor", "reason", "at", "group", "action", "replayed", "launch_eligible"]}},
-  "execution": {"type": "object", "required": ["briefs", "attempts", "results", "decisions", "availability", "uses", "drops"], "additionalProperties": false, "properties": {"briefs": {"$ref": "#/$defs/evidenceTable"}, "attempts": {"$ref": "#/$defs/evidenceTable"}, "results": {"$ref": "#/$defs/evidenceTable"}, "decisions": {"$ref": "#/$defs/evidenceTable"}, "availability": {"$ref": "#/$defs/evidenceTable"}, "uses": {"$ref": "#/$defs/evidenceTable"}, "drops": {"$ref": "#/$defs/evidenceTable"}}},
-  "gate_reviews": {"type": "object", "additionalProperties": {"type": "object", "required": ["cycle", "gate", "phase", "manifest", "verdict", "advisor_run_id", "route", "at"]}},
-  "assignments": {"items": {"additionalProperties": false, "properties": {"acceptance": {"enum": ["accepted", "rejected", "pending"]}, "assignment_id": {"type": "string"}, "base_revision": {"type": "string"}, "result": {"enum": ["success", "partial", "blocked", "none"]}, "run_id": {"type": ["string", "null"]}, "status": {"enum": ["dispatched", "returned", "accepted", "rejected"]}, "workspace_ref": {"type": "string"}}, "required": ["assignment_id", "base_revision", "workspace_ref", "status"], "type": "object"}, "type": "array"}, "blockers": {"items": {"additionalProperties": false, "properties": {"description": {"type": "string"}, "id": {"type": "string"}, "resume_conditions": {"type": "string"}, "since": {"type": "string"}, "status": {"enum": ["open", "confirmed-unresolvable", "resolved"]}}, "required": ["id", "description", "status", "since"], "type": "object"}, "type": "array"}, "budgets": {"additionalProperties": false, "properties": {"outer_cycles": {"additionalProperties": false, "properties": {"max": {"maximum": 5, "minimum": 3, "type": "integer"}, "used": {"minimum": 0, "type": "integer"}}, "required": ["max", "used"], "type": "object"}}, "required": ["outer_cycles"], "type": "object"}, "consultations": {"items": {"additionalProperties": false, "properties": {"agent": {"type": "string"}, "gate": {"type": ["string", "null"]}, "id": {"type": "string"}, "kind": {"enum": ["advice", "verdict"]}, "run_id": {"type": ["string", "null"]}, "evidence_ref": {"type": "string"}, "recorded_at": {"type": "string", "format": "date-time"}, "status": {"enum": ["completed", "no-verdict", "timeout", "error"]}}, "required": ["id", "agent", "kind", "run_id", "status"], "type": "object"}, "type": "array"}, "decisions": {"items": {"additionalProperties": false, "properties": {"id": {"type": "string"}, "status": {"enum": ["open", "closed", "superseded"]}, "tag": {"enum": ["DECISION-REQUIRED", "FYI"]}}, "required": ["id", "tag", "status"], "type": "object"}, "type": "array"}, "gates": {"additionalProperties": false, "patternProperties": {"^[A-Z_]+_GATE$": {"additionalProperties": false, "properties": {"rounds_used": {"minimum": 0, "type": "integer"}, "target_manifest": {"type": "string"}, "timestamp": {"type": "string"}, "verdict": {"enum": ["approve", "revise", "inconclusive", "block", "none"]}}, "required": ["verdict", "target_manifest", "rounds_used"], "type": "object"}}, "type": "object"}, "identity": {"additionalProperties": false, "properties": {"charter_ref": {"type": "string"}, "project_id": {"type": "string"}, "protocol_version": {"type": "string"}}, "required": ["project_id", "protocol_version", "charter_ref"], "type": "object"}, "lifecycle": {"additionalProperties": false, "properties": {"hold_reason": {"type": ["string", "null"]}, "diagnosis_only": {"type": "boolean"}, "status_report": {"type": "string"}, "inner_attempt": {"minimum": 0, "type": "integer"}, "outer_cycle": {"minimum": 1, "type": "integer"}, "plan_version": {"type": "string"}, "stage": {"enum": ["CREATED", "SCOPING", "PLANNING", "IMPLEMENTING", "EVALUATING", "ANALYZING", "REPORTING", "COMPLETED"]}, "status": {"enum": ["active", "hold", "suspended"]}}, "required": ["stage", "status", "outer_cycle", "inner_attempt", "plan_version"], "type": "object"}, "objectives": {"items": {"additionalProperties": false, "properties": {"evidence_refs": {"items": {"type": "string"}, "type": "array"}, "id": {"type": "string"}, "status": {"enum": ["untested", "partial", "met", "failed"]}, "text": {"type": "string"}}, "required": ["id", "text", "status", "evidence_refs"], "type": "object"}, "type": "array"}, "progress_verdicts": {"items": {"additionalProperties": false, "properties": {"cycle": {"minimum": 1, "type": "integer"}, "credible_lever": {"type": "boolean"}, "evidence_refs": {"items": {"type": "string"}, "type": "array"}, "verdict": {"enum": ["advanced", "marginal", "stalled", "regressed"]}}, "required": ["cycle", "verdict"], "type": "object"}, "type": "array"}}, "required": ["identity", "lifecycle", "budgets", "objectives", "progress_verdicts", "gates", "blockers", "assignments", "consultations", "decisions"], "title": "Research project live ledger", "type": "object",
-  "$defs": {"evidenceTable": {"type": "object", "additionalProperties": {"type": "object", "required": ["id", "recorded_at"], "properties": {"id": {"type": "string", "minLength": 1}, "recorded_at": {"type": "string", "format": "date-time"}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/research-ops/project-state.schema.json",
+  "title": "Research project live ledger",
+  "$comment": "Canonical structural schema for the research-project ledger. Runtime cross-record, Git, and evidence invariants are checked separately. Legacy snapshots remain readable through legacy checks and cannot perform managed writes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["identity","lifecycle","budgets","objectives","progress_verdicts","gates","blockers","assignments","consultations","decisions"],
+  "dependentRequired": {"format":["revision","policy","execution","operations","gate_reviews"]},
+  "properties": {
+    "format": {"type":"integer","const":1},
+    "revision": {"type":"integer","minimum":0},
+    "policy": {
+      "type": "object",
+      "required": ["inner_limit","stagnation_cycles"],
+      "additionalProperties": false,
+      "properties": {"inner_limit":{"type":"integer","minimum":1},"stagnation_cycles":{"type":"integer","minimum":2}}
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["op_id","revision","fingerprint","actor","reason","at","group","action","replayed","launch_eligible"],
+        "allOf": [
+          {
+            "if": {"properties":{"group":{"const":"evidence"},"action":{"const":"assess-task"}}},
+            "then": {
+              "required": ["assessment","advisor_need","basis","resolved_advisor"],
+              "properties": {
+                "assessment": {"$ref":"#/$defs/taskAssessment"},
+                "advisor_need": {"enum":[null,"advice","gate"]},
+                "basis": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["stage","outer_cycle","plan_version"],
+                  "properties": {"stage":{"type":"string"},"outer_cycle":{"type":"integer","minimum":1},"plan_version":{"type":"string"}}
+                },
+                "resolved_advisor": {"type":"object","additionalProperties":{"type":"string"}}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"configure-consultations"}}},
+            "then": {
+              "required": ["approval_id","policy"],
+              "properties": {
+                "approval_id": {"type":"string","minLength":1},
+                "policy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["approval","mandatory","exploratory"],
+                  "properties": {
+                    "approval": {"$ref":"#/$defs/artifactHashes","maxProperties":1},
+                    "mandatory": {"$ref":"#/$defs/advisorLane"},
+                    "exploratory": {"$ref":"#/$defs/advisorLane"}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"reserve-consultation"}}},
+            "then": {
+              "required": ["policy_id","purpose","pass","lane","issue","target","basis","brief","limits"],
+              "properties": {
+                "policy_id": {"type":"string","minLength":1},
+                "purpose": {"enum":["gate","task-advice","exploratory"]},
+                "pass": {"enum":["evidence-first","decision"]},
+                "lane": {"enum":["mandatory","exploratory"]},
+                "issue": {"type":"string","minLength":1},
+                "target": {"type":"object"},
+                "basis": {"type":"object"},
+                "brief": {"$ref":"#/$defs/artifactHashes"},
+                "limits": {"$ref":"#/$defs/advisorLimits"}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"settle-consultation"}}},
+            "then": {
+              "required": ["attempt_id","outcome","run_id","artifacts","usage","over_limit"],
+              "properties": {
+                "attempt_id": {"type":"string","minLength":1},
+                "outcome": {"enum":["finished","failed","timed-out","non-dispatched"]},
+                "run_id": {"type":["string","null"]},
+                "artifacts": {"$ref":"#/$defs/artifactHashes"},
+                "usage": {"$ref":"#/$defs/advisorUsage"},
+                "over_limit": {"type":"array","uniqueItems":true,"items":{"enum":["tokens","model_calls","seconds"]}}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"reuse-consultation"}}},
+            "then": {
+              "required": ["consultation_id","assessment_id","inputs","rationale","source_attempt"],
+              "properties": {
+                "consultation_id": {"type":"string","minLength":1},
+                "assessment_id": {"type":"string","minLength":1},
+                "inputs": {"type":"object"},
+                "rationale": {"type":"string","minLength":1},
+                "source_attempt": {"type":"string","minLength":1}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"record-advice-check"}}},
+            "then": {
+              "required": ["consultation_id","finding","rationale","artifacts"],
+              "properties": {
+                "consultation_id": {"type":"string","minLength":1},
+                "finding": {"enum":["supported","contradicted","inconclusive"]},
+                "rationale": {"type":"string","minLength":1},
+                "artifacts": {"$ref":"#/$defs/artifactHashes"}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"begin-okf-publication"}}},
+            "then": {
+              "required": ["paths","request_artifacts","staging","base_ledger_revision","base_files","base_hub_sha256"],
+              "properties": {
+                "paths": {"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},
+                "request_artifacts": {"$ref":"#/$defs/artifactHashes"},
+                "staging": {"type":"string","minLength":1},
+                "base_ledger_revision": {"type":"integer","minimum":0},
+                "base_files": {"$ref":"#/$defs/artifactHashes"},
+                "base_hub_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"prepare-okf-publication"}}},
+            "then": {
+              "required": ["request_id","target_files","writer_result","writer_artifacts","hub_sha256"],
+              "properties": {
+                "request_id": {"type":"string","minLength":1},
+                "target_files": {"$ref":"#/$defs/artifactHashes"},
+                "writer_result": {"type":"string","minLength":1},
+                "writer_artifacts": {"$ref":"#/$defs/artifactHashes"},
+                "hub_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"publish-okf"}}},
+            "then": {
+              "required": ["request_id","prepare_id","writer_result","writer_artifacts","hub_sha256"],
+              "properties": {
+                "request_id": {"type":"string","minLength":1},
+                "prepare_id": {"type":"string","minLength":1},
+                "writer_result": {"type":"string","minLength":1},
+                "writer_artifacts": {"$ref":"#/$defs/artifactHashes"},
+                "hub_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"abort-okf-publication"}}},
+            "then": {
+              "required": ["request_id","recovery_artifacts","writer_state"],
+              "properties": {
+                "request_id": {"type":"string","minLength":1},
+                "recovery_artifacts": {"$ref":"#/$defs/artifactHashes"},
+                "writer_state": {"enum":["terminated","not-dispatched"]}
+              }
+            }
+          },
+          {
+            "if": {"properties":{"group":{"const":"lifecycle"},"action":{"const":"check-okf-gate"}}},
+            "then": {
+              "required": ["cycle","checked_manifest","hub_sha256","service_artifacts","reader_checked","validators","check_result"],
+              "properties": {
+                "checked_manifest": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+                "hub_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+                "service_artifacts": {"$ref":"#/$defs/artifactHashes"},
+                "reader_checked": {"type":"boolean"},
+                "validators": {"$ref":"#/$defs/artifactHashes"},
+                "check_result": {"type":"object"},
+                "publication_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+              }
+            }
+          }
+        ],
+        "properties": {
+          "charged_cycle": {"type":"integer","minimum":1},
+          "charged_inner_attempt": {"type":"integer","minimum":1},
+          "cycle": {"type":"integer","minimum":1},
+          "start_op_id": {"type":"string"},
+          "base_revision": {"$ref":"#/$defs/gitCommit"},
+          "checkpoint": {"$ref":"#/$defs/gitCommit"},
+          "integration_commits": {"type":"array","items":{"$ref":"#/$defs/gitCommit"}},
+          "op_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+          "revision": {"type":"integer","minimum":1},
+          "fingerprint": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+          "actor": {"type":"string","minLength":1},
+          "reason": {"type":"string","minLength":1},
+          "at": {"type":"string","format":"date-time"},
+          "group": {"enum":["lifecycle","evidence"]},
+          "action": {"type":"string","minLength":1},
+          "replayed": {"const":false},
+          "launch_eligible": {"const":false}
+        }
+      },
+      "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+    },
+    "execution": {
+      "type": "object",
+      "required": ["briefs","attempts","results","decisions","availability","uses","drops"],
+      "additionalProperties": false,
+      "properties": {
+        "briefs": {
+          "type": "object",
+          "additionalProperties": {"$ref":"#/$defs/executionBrief"},
+          "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+        },
+        "attempts": {
+          "type": "object",
+          "additionalProperties": {"$ref":"#/$defs/executionAttempt"},
+          "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+        },
+        "results": {
+          "type": "object",
+          "additionalProperties": {"$ref":"#/$defs/executionResult"},
+          "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+        },
+        "decisions": {
+          "type": "object",
+          "additionalProperties": {"$ref":"#/$defs/executionDecision"},
+          "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+        },
+        "availability": {
+          "type": "object",
+          "additionalProperties": {"$ref":"#/$defs/executionAvailability"},
+          "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+        },
+        "uses": {
+          "type": "object",
+          "additionalProperties": {"$ref":"#/$defs/executionUse"},
+          "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+        },
+        "drops": {
+          "type": "object",
+          "additionalProperties": {"$ref":"#/$defs/executionDrop"},
+          "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+        }
+      }
+    },
+    "gate_reviews": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["cycle","gate","phase","manifest","verdict","advisor_run_id","route","at"],
+        "additionalProperties": false,
+        "properties": {
+          "cycle": {"type":"integer","minimum":1},
+          "gate": {"enum":["PLAN_GATE","INNER_EXIT_GATE","CYCLE_GATE","REPORT_GATE"]},
+          "phase": {"enum":["protocol","readiness","complete","diagnosis","cycle","report"]},
+          "manifest": true,
+          "verdict": {"enum":["none","approve","revise","inconclusive","block"]},
+          "output": true,
+          "advisor_run_id": {"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},{"type":"null"}]},
+          "failure": {"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},
+          "route": {
+            "enum": [null,"continue","continue-to-diagnose","gather-evidence","remediate-plan","remediate-implementation","remediate-report","report","stop","replan","complete","hold","withdrawn-stale"]
+          },
+          "at": {"type":"string","format":"date-time"},
+          "basis": {"anyOf":[{"type":"string","pattern":"^[0-9a-f]{64}$"},{"type":"null"}]},
+          "okf_check": {"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},{"type":"null"}]},
+          "routed_okf_check": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+          "assessment_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+          "attempt_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+          "consultation_lane": {"enum":["mandatory"]},
+          "consultation_pass": {"enum":["decision"]},
+          "usable": {"type":"boolean"}
+        },
+        "allOf": [
+          {
+            "if": {"properties":{"verdict":{"not":{"const":"none"}}}},
+            "then": {
+              "properties": {
+                "manifest": {
+                  "type": "object",
+                  "required": ["gate","phase","id","artifacts"],
+                  "properties": {
+                    "gate": {"enum":["PLAN_GATE","INNER_EXIT_GATE","CYCLE_GATE","REPORT_GATE"]},
+                    "phase": {"enum":["protocol","readiness","complete","diagnosis","cycle","report"]},
+                    "id": {"type":"string","minLength":1},
+                    "artifacts": {"$ref":"#/$defs/artifactHashes"}
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "propertyNames": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+    },
+    "assignments": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance": {"enum":["accepted","rejected","pending"]},
+          "assignment_id": {"type":"string"},
+          "base_revision": {"type":"string"},
+          "result": {"enum":["success","partial","blocked","none"]},
+          "run_id": {"type":["string","null"]},
+          "status": {"enum":["dispatched","returned","accepted","rejected"]},
+          "workspace_ref": {"type":"string"}
+        },
+        "required": ["assignment_id","base_revision","workspace_ref","status"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "blockers": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {"type":"string"},
+          "id": {"type":"string"},
+          "resume_conditions": {"type":"string"},
+          "since": {"type":"string"},
+          "status": {"enum":["open","confirmed-unresolvable","resolved"]}
+        },
+        "required": ["id","description","status","since"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "budgets": {
+      "additionalProperties": false,
+      "properties": {
+        "outer_cycles": {
+          "additionalProperties": false,
+          "properties": {"max":{"maximum":5,"minimum":3,"type":"integer"},"used":{"minimum":0,"type":"integer"}},
+          "required": ["max","used"],
+          "type": "object"
+        }
+      },
+      "required": ["outer_cycles"],
+      "type": "object"
+    },
+    "consultations": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {"type":"string"},
+          "consultation_lane": {"enum":["mandatory","exploratory"]},
+          "consultation_pass": {"enum":["decision","evidence-first"]},
+          "usable": {"type":"boolean"},
+          "agent": {"type":"string"},
+          "gate": {"type":["string","null"]},
+          "id": {"type":"string"},
+          "kind": {"enum":["advice","verdict"]},
+          "run_id": {"type":["string","null"]},
+          "evidence_ref": {"type":"string"},
+          "assessment_id": {"type":"string"},
+          "artifacts": {"$ref":"#/$defs/artifactHashes"},
+          "disposition": {"enum":["accepted","adapted","declined"]},
+          "rationale": {"type":"string"},
+          "recorded_at": {"type":"string","format":"date-time"},
+          "status": {"enum":["completed","no-verdict","timeout","error"]}
+        },
+        "required": ["id","agent","kind","run_id","status"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "decisions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type":"string"},
+          "status": {"enum":["open","closed","superseded"]},
+          "tag": {"enum":["DECISION-REQUIRED","FYI"]}
+        },
+        "required": ["id","tag","status"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "gates": {
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Z_]+_GATE$": {
+          "additionalProperties": false,
+          "properties": {
+            "rounds_used": {"minimum":0,"type":"integer"},
+            "target_manifest": {"type":"string"},
+            "timestamp": {"type":"string"},
+            "verdict": {"enum":["approve","revise","inconclusive","block","none"]}
+          },
+          "required": ["verdict","target_manifest","rounds_used"],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {"charter_ref":{"type":"string"},"project_id":{"type":"string"},"protocol_version":{"type":"string"}},
+      "required": ["project_id","protocol_version","charter_ref"],
+      "type": "object"
+    },
+    "lifecycle": {
+      "additionalProperties": false,
+      "properties": {
+        "hold_reason": {"type":["string","null"]},
+        "diagnosis_only": {"type":"boolean"},
+        "status_report": {"type":"string"},
+        "inner_attempt": {"minimum":0,"type":"integer"},
+        "outer_cycle": {"minimum":1,"type":"integer"},
+        "pending_inner_attempt": {
+          "type": "object",
+          "required": ["start_op_id","base_revision"],
+          "additionalProperties": false,
+          "properties": {"start_op_id":{"type":"string"},"base_revision":{"$ref":"#/$defs/gitCommit"}}
+        },
+        "plan_version": {"type":"string"},
+        "stage": {"enum":["CREATED","SCOPING","PLANNING","IMPLEMENTING","EVALUATING","ANALYZING","REPORTING","COMPLETED"]},
+        "status": {"enum":["active","hold","suspended"]}
+      },
+      "required": ["stage","status","outer_cycle","inner_attempt","plan_version"],
+      "type": "object"
+    },
+    "objectives": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_refs": {"items":{"type":"string"},"type":"array"},
+          "id": {"type":"string"},
+          "status": {"enum":["untested","partial","met","failed"]},
+          "text": {"type":"string"}
+        },
+        "required": ["id","text","status","evidence_refs"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "progress_verdicts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "cycle": {"minimum":1,"type":"integer"},
+          "credible_lever": {"type":"boolean"},
+          "evidence_refs": {"items":{"type":"string"},"type":"array"},
+          "verdict": {"enum":["advanced","marginal","stalled","regressed"]}
+        },
+        "required": ["cycle","verdict"],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "$defs": {
+    "taskAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["beads_task_id","classification","dimensions","uncertainties","triggers","artifacts","next_step"],
+      "properties": {
+        "beads_task_id": {"type":"string","pattern":"^[a-z][a-z0-9]*-[a-zA-Z0-9][a-zA-Z0-9-]{0,119}$"},
+        "classification": {"enum":["READY","INVESTIGATE","CONSULT","BLOCKED"]},
+        "dimensions": {
+          "type": "object",
+          "required": ["problem","information","methodology","competence","verification","risk","uncertainty"],
+          "minProperties": 7,
+          "maxProperties": 7,
+          "additionalProperties": {"type":"string","minLength":1}
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind","issue","material","bounded_check"],
+            "properties": {
+              "kind": {"enum":["factual","conceptual","methodological","technical","interpretive","strategic","resource"]},
+              "issue": {"type":"string","minLength":1},
+              "material": {"type":"boolean"},
+              "bounded_check": {"type":["string","null"],"minLength":1}
+            }
+          }
+        },
+        "triggers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["unclear-question","unjustified-assumptions","material-method-choices","no-credible-evaluation","contradictory-evidence","hypothesis-undermined","repeated-conceptual-failure","substantial-interpretation","invalidating-scope-change","stage-review-gate"]
+          }
+        },
+        "artifacts": {"$ref":"#/$defs/artifactHashes"},
+        "next_step": {"type":"string","minLength":1},
+        "routing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind","fixed_role","handoff","required","assignee","reason"],
+          "properties": {
+            "kind": {"enum":["lead","fixed","pool"]},
+            "fixed_role": {
+              "enum": [null,"research-advisor","engineering-worker","harness-architector","backend-architector","frontend-architector","okf-reader","okf-writer"]
+            },
+            "assignee": {"type":["string","null"]},
+            "handoff": {"enum":["eligible","coupled","no-eligible-child"]},
+            "required": {"type":"boolean"},
+            "reason": {"type":"string","minLength":1}
+          }
+        },
+        "gate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gate","phase"],
+          "properties": {
+            "gate": {"enum":["PLAN_GATE","INNER_EXIT_GATE","CYCLE_GATE","REPORT_GATE"]},
+            "phase": {"enum":["protocol","readiness","complete","diagnosis","cycle","report"]}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties":{"classification":{"const":"READY"}}},
+          "then": {"required":["routing"]},
+          "else": {"not":{"required":["routing"]}}
+        },
+        {
+          "if": {"properties":{"triggers":{"contains":{"const":"stage-review-gate"}}}},
+          "then": {"required":["gate"]},
+          "else": {"not":{"required":["gate"]}}
+        }
+      ]
+    },
+    "artifactHashes": {"type":"object","minProperties":1,"additionalProperties":{"type":"string","pattern":"^[0-9a-f]{64}$"}},
+    "advisorLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens","model_calls","seconds"],
+      "properties": {
+        "tokens": {"type":"integer","minimum":1},
+        "model_calls": {"type":"integer","minimum":1},
+        "seconds": {"type":"integer","minimum":1}
+      }
+    },
+    "advisorUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokens","model_calls","seconds"],
+      "properties": {
+        "tokens": {"type":["integer","null"],"minimum":0},
+        "model_calls": {"type":["integer","null"],"minimum":0},
+        "seconds": {"type":["integer","null"],"minimum":0}
+      }
+    },
+    "advisorLane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calls","attempts_per_issue","per_call"],
+      "properties": {
+        "calls": {"type":"integer","minimum":0},
+        "attempts_per_issue": {"type":"integer","minimum":1},
+        "per_call": {"$ref":"#/$defs/advisorLimits"}
+      }
+    },
+    "gitCommit": {"type":"string","pattern":"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "executionBrief": {
+      "type": "object",
+      "required": ["id","recorded_at","assignment_id","beads_task_id","assignee","mode","scope","deliverable","criteria","exclusions","source_versions","read_paths","modify_paths","commands","external_actions","tools","attempt_limit","soft_seconds","hard_seconds","ready"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "recorded_at": {"type":"string","format":"date-time"},
+        "assignment_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "beads_task_id": {"type":"string","pattern":"^[a-z][a-z0-9]*-[a-zA-Z0-9][a-zA-Z0-9-]{0,119}$"},
+        "assignee": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "mode": {"enum":["read","execute","write"]},
+        "scope": {"type":"string","minLength":1},
+        "deliverable": {"type":"string","minLength":1},
+        "criteria": {"type":"array","items":{"type":"string","minLength":1},"minItems":1},
+        "exclusions": {"type":"array","items":{"type":"string","minLength":1}},
+        "source_versions": {"type":"object","additionalProperties":{"type":"string","minLength":1},"minProperties":1},
+        "read_paths": {"type":"array","items":{"type":"string","minLength":1}},
+        "modify_paths": {"type":"array","items":{"type":"string","minLength":1}},
+        "commands": {"type":"array","items":{"type":"string","minLength":1}},
+        "external_actions": {"type":"array","items":{"type":"string","minLength":1}},
+        "tools": {"type":"array","items":{"type":"string","minLength":1}},
+        "attempt_limit": {"type":"integer","minimum":1},
+        "soft_seconds": {"type":"integer","minimum":1},
+        "hard_seconds": {"type":"integer","minimum":1},
+        "ready": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": ["basis","recorded_at"],
+              "additionalProperties": false,
+              "properties": {"basis":{"type":"string","minLength":1},"recorded_at":{"type":"string","format":"date-time"}}
+            },
+            {"type":"null"}
+          ]
+        },
+        "previous_revision": {"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},{"type":"null"}]},
+        "base_revision": {"anyOf":[{"$ref":"#/$defs/gitCommit"},{"type":"null"}]},
+        "verification_exemption": {"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},
+        "routing_reason": {"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},
+        "assessment_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"}
+      }
+    },
+    "executionAttempt": {
+      "type": "object",
+      "required": ["id","recorded_at","assignment_id","revision_id","workspace","profile_ref","execution","soft_deadline","hard_deadline","effects","run_id","cutoff","no_result"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "recorded_at": {"type":"string","format":"date-time"},
+        "assignment_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "revision_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "workspace": {"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},
+        "profile_ref": {"type":"string","minLength":1},
+        "execution": {"enum":["dispatch_pending","launch_unknown","dispatched","terminated","not_dispatched"]},
+        "soft_deadline": {"type":"string","format":"date-time"},
+        "hard_deadline": {"type":"string","format":"date-time"},
+        "effects": {"enum":["unreconciled","none","clean","isolated","integrated"]},
+        "run_id": {"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},{"type":"null"}]},
+        "cutoff": {"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]},
+        "no_result": {"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["action","evidence","at"],
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "enum": ["launch-unknown","attach-run","prove-non-dispatch","observe-termination","hard-cutoff","record-no-result","reconcile-effects"]
+              },
+              "evidence": {"type":"string","minLength":1},
+              "at": {"type":"string","format":"date-time"}
+            }
+          }
+        }
+      }
+    },
+    "executionResult": {
+      "type": "object",
+      "required": ["id","recorded_at","assignment_id","revision_id","attempt_id","status","source_versions","deliverable","evidence_refs","gaps","late"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "recorded_at": {"type":"string","format":"date-time"},
+        "assignment_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "revision_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "attempt_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "status": {"enum":["SUCCESS","PARTIAL","BLOCKED"]},
+        "source_versions": {"type":"object"},
+        "deliverable": true,
+        "evidence_refs": {"type":"array","items":{"type":"string","minLength":1}},
+        "gaps": {"type":"array","items":{"type":"string","minLength":1}},
+        "late": {"type":"boolean"},
+        "verification": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": ["exit_code","output"],
+                "additionalProperties": true,
+                "properties": {"exit_code":{"type":"integer"},"output":{"type":"string","minLength":1}}
+              },
+              {
+                "type": "object",
+                "required": ["not_run"],
+                "additionalProperties": true,
+                "properties": {"not_run":{"type":"string","minLength":1}}
+              }
+            ]
+          }
+        },
+        "affected_paths": {"type":"object"},
+        "deviations": {"type":"array","items":{"type":"string","minLength":1}},
+        "follow_ups": {"type":"array","items":{"type":"string","minLength":1}}
+      }
+    },
+    "executionDecision": {
+      "type": "object",
+      "required": ["id","recorded_at","attempt_id","revision_id","verdict","rationale"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "recorded_at": {"type":"string","format":"date-time"},
+        "attempt_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "revision_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "verdict": {"enum":["accepted","rejected"]},
+        "rationale": {"type":"string","minLength":1},
+        "result_id": {"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},{"type":"null"}]},
+        "supersedes": {"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},{"type":"null"}]}
+      }
+    },
+    "executionAvailability": {
+      "type": "object",
+      "required": ["id","recorded_at","decision_id","artifacts"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "recorded_at": {"type":"string","format":"date-time"},
+        "decision_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "artifacts": {"$ref":"#/$defs/artifactHashes"},
+        "checkpoint": {"anyOf":[{"$ref":"#/$defs/gitCommit"},{"type":"null"}]}
+      }
+    },
+    "executionUse": {
+      "type": "object",
+      "required": ["id","recorded_at","decision_id","consumer","output","required"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "recorded_at": {"type":"string","format":"date-time"},
+        "decision_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "consumer": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "output": {"type":"string","minLength":1},
+        "required": {"type":"boolean"}
+      }
+    },
+    "executionDrop": {
+      "type": "object",
+      "required": ["id","recorded_at","revision_id","beads_task_id","optional","gap"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "recorded_at": {"type":"string","format":"date-time"},
+        "revision_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "beads_task_id": {"type":"string","minLength":1},
+        "optional": {"const":true},
+        "gap": {"type":"string","minLength":1}
+      }
+    }
+  }
 }

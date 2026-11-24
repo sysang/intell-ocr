@@ -26,14 +26,19 @@ fired predicate is in the output). 1 invariant violation / illegal event.
 import argparse
 import copy
 import json
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
 
+import consultations
 import durable
 import evidence
 import gates
+import hub_publication
+import knowledge
+import task_readiness
 
 MAX_REVISE_ROUNDS = 2
 EARLY_STOP_DEFAULT = 2
@@ -46,10 +51,32 @@ def now_iso():
     return datetime.now(timezone.utc).astimezone().isoformat()
 
 
+def unique_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        evidence.require(key not in result, f'duplicate state field: {key}')
+        result[key] = value
+    return result
+
+
+def reject_constant(value):
+    raise ValueError(f'{value} is not a JSON number')
+
+
+def finite_float(value):
+    number = float(value)
+    evidence.require(math.isfinite(number), 'JSON number outside the supported finite range')
+    return number
+
+
+def read_json(stream):
+    return json.load(stream, object_pairs_hook=unique_fields, parse_constant=reject_constant, parse_float=finite_float)
+
+
 def load_state(path):
     try:
         with open(path, encoding="utf-8") as fh:
-            return json.load(fh)
+            return read_json(fh)
     except (OSError, ValueError) as exc:
         return {"__load_error__": str(exc)}
 
@@ -61,6 +88,8 @@ def check_invariants(state):
         return ["state must be a JSON object"]
     if "__load_error__" in state:
         return ["state file unreadable: " + state["__load_error__"]]
+    if {'format', 'revision', 'policy', 'execution', 'operations', 'gate_reviews'} & state.keys():
+        return durable.validate(state)
     for top in ("identity", "lifecycle", "budgets", "objectives",
                 "progress_verdicts", "gates", "blockers",
                 "assignments", "consultations", "decisions"):
@@ -117,12 +146,11 @@ def check_invariants(state):
             problems.append("objective %s marked met with no evidence_refs" % o.get("id"))
     if lc.get("status") == "suspended" and lc.get("stage") != "COMPLETED":
         # SUSPENDED is terminal-but-not-complete; allowed only with a recorded report trail.
-        ok = bool(lc.get('status_report')) if 'format' in state else (
-            any(d.get('status') in ('closed', 'superseded') for d in state['decisions']) or
-            any(b.get('status') == 'confirmed-unresolvable' for b in state['blockers']))
+        ok = (any(d.get('status') in ('closed', 'superseded') for d in state['decisions']) or
+              any(b.get('status') == 'confirmed-unresolvable' for b in state['blockers']))
         if not ok:
             problems.append("SUSPENDED with no closed decision or confirmed-unresolvable blocker on record")
-    return problems + (durable.validate(state) if 'format' in state else [])
+    return problems
 
 
 def generation_meta(state_path):
@@ -361,6 +389,9 @@ def main(argv=None):
     get = sub.add_parser('get')
     get.add_argument('state')
     get.add_argument('id')
+    task = sub.add_parser('check-task')
+    task.add_argument('state')
+    task.add_argument('assessment_id')
     close = sub.add_parser('check-close')
     close.add_argument('state')
     close.add_argument('task')
@@ -377,30 +408,44 @@ def main(argv=None):
                                             args.charter, args.stagnation_cycles)
                     receipt = {'revision': 0, 'project': args.project}
                 else:
+                    if args.group == 'lifecycle' and args.action in (*hub_publication.ACTIONS, knowledge.ACTION):
+                        evidence.require(path == Path(args.state).absolute() and path.name == 'project-state.json',
+                                         'managed OKF operations require the canonical project-state.json (no symlinks)')
                     state = load_state(path)
                     problems = check_invariants(state)
                     evidence.require(not problems, '; '.join(problems))
                     if args.input == '-':
-                        payload = json.load(sys.stdin)
+                        payload = read_json(sys.stdin)
                     else:
                         with open(args.input, encoding='utf-8') as f:
-                            payload = json.load(f)
+                            payload = read_json(f)
                     new, receipt = durable.apply(state, args.group, args.action, payload, args.op_id,
                                                  args.expected_revision, args.actor, args.reason, now_iso(), path.parent)
-                    if new is not None:
-                        problems = check_invariants(new)
-                        evidence.require(not problems, '; '.join(problems))
                 if new is not None:
                     durable.save(path, new)
             print(json.dumps(receipt, indent=2))
             return 0
         state = load_state(path)
         problems = check_invariants(state)
-        if not problems and args.cmd in ('get', 'check-close'):
+        if not problems and args.cmd in ('get', 'check-close', 'check-task'):
             evidence.require(state.get('format') == 1, 'operation requires managed state')
             if args.cmd == 'get':
-                result = ({'kind': 'gate_review', 'record': state['gate_reviews'][args.id]}
-                          if args.id in state['gate_reviews'] else evidence.get(state, args.id))
+                receipt = state['operations'].get(args.id)
+                if receipt and receipt['group'] == 'evidence' and receipt['action'] == task_readiness.ACTION:
+                    result = {'kind': 'task_assessment', 'record': receipt}
+                elif receipt and receipt['group'] == 'lifecycle' and receipt['action'] in (
+                        consultations.CONFIGURE, consultations.RESERVE, consultations.SETTLE, consultations.REUSE, consultations.CHECK):
+                    result = {'kind': 'consultation_receipt', 'record': receipt}
+                elif receipt and receipt['group'] == 'lifecycle' and receipt['action'] in (*hub_publication.ACTIONS, knowledge.ACTION):
+                    result = {'kind': 'okf_receipt', 'record': receipt}
+                elif any(c['id'] == args.id for c in state['consultations']):
+                    result = {'kind': 'consultation', 'record': next(c for c in state['consultations'] if c['id'] == args.id)}
+                else:
+                    result = ({'kind': 'gate_review', 'record': state['gate_reviews'][args.id]}
+                              if args.id in state['gate_reviews'] else evidence.get(state, args.id))
+            elif args.cmd == 'check-task':
+                assessment = task_readiness.check_ready(state, args.assessment_id, path.parent)
+                result = {'ready': True, 'routing': assessment['routing'], 'beads_task_id': assessment['beads_task_id']}
             else:
                 evidence.close_check(state, args.task, args.record, args.disposition, path.parent)
                 result = {'allowed': True, 'revision': state['revision'], 'project': state['identity']['project_id']}
@@ -423,16 +468,23 @@ def main(argv=None):
         status = cmd_status(state, meta)
         if state.get('format') == 1:
             status.pop('gate_readiness')
+            status['pending_inner_attempt'] = state['lifecycle'].get('pending_inner_attempt')
             status['gate_reviews'] = [{k: row[k] for k in ('gate', 'phase', 'verdict', 'route')} | {'id': key}
                                       for key, row in state['gate_reviews'].items() if row['cycle'] == status['outer_cycle']]
             status['gate_flags'] = gates.flags(state, path.parent)
             status['execution'] = evidence.view(state['execution'])
+            status['task_assessments'] = task_readiness.view(state)
+            status['advisor_calls'] = consultations.view(state)
+            status['okf_publication'] = hub_publication.view(state)
         print(json.dumps(status, indent=2))
     elif args.cmd == "next":
         if state.get('format') == 1:
             print(json.dumps({'meta': meta, 'stage': state['lifecycle']['stage'],
                               'status': state['lifecycle']['status'], 'execution': evidence.view(state['execution']),
                               'gate_flags': gates.flags(state, path.parent),
+                              'task_assessments': task_readiness.view(state),
+                              'advisor_calls': consultations.view(state),
+                              'okf_publication': hub_publication.view(state),
                               'candidates': gates.candidates(state, path.parent)}, indent=2))
         else:
             print(json.dumps(cmd_next(state, meta), indent=2))

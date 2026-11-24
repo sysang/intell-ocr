@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bootstrap and launch a single project in the main Pi session. No scheduler."""
 import argparse
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 
+import consultations
 import durable
 from evidence import FIXED, file_sha, ident, require, text, texts, verify_artifacts
 
@@ -71,7 +73,9 @@ def initialization(a):
         '- [Research charter](charter/research-charter.md)\n', encoding='utf-8')
     # `bd init` may seed generic tracker instructions. Research policy owns this project.
     (p / 'AGENTS.md').write_text('# Research project\n\nUse the Research Lead contract and root blueprint. '
-                                'Beads is an operational backlog, not evidence authority.\n', encoding='utf-8')
+                                'Beads is an operational backlog, not evidence authority.\n'
+                                'Use the managed OKF publication protocol for hub Markdown; writers edit only their staging copy.\n',
+                                encoding='utf-8')
     (p / charter_ref).write_text('---\ntype: research-charter\n---\n# Research charter\n\n## Director question\n\n' + a.question +
         '\n\n## Success criteria\n\n' + ''.join(f'- {o}\n' for o in a.objective) +
         '\n## Before protocol approval\n\nRecord scope, non-goals, resource caps, risks, and assumptions with the Director.\n', encoding='utf-8')
@@ -106,7 +110,10 @@ def preflight(p, pi, subagents):
     files = [LEAD, TASK_TOOLS, TASK_TOOLS.with_name('adapter.ts'), REPO / '.pi/settings.json', pkg / 'package.json',
              pkg / 'index.js', Path(pi).resolve(), Path(cfg['bd']).resolve(), p / 'research-config.json',
              REPO / '.pi/agents/okf-reader/validate_result.py',
-             REPO / '.pi/agents/okf-writer/validate_okf.py']
+             REPO / '.pi/agents/okf-writer/validate_okf.py',
+             *(Path(__file__).with_name(name) for name in ('research.py', 'ledger.py', 'durable.py', 'gates.py',
+                                                         'knowledge.py', 'hub_publication.py', 'snapshot_schema.py',
+                                                         'project-state.schema.json', 'requirements.txt'))]
     definitions = {}
     for name in sorted(FIXED):
         source = REPO / '.pi/agents' / name / 'agent.md'
@@ -135,9 +142,24 @@ def verify_smoke(p, current):
         seen.add(r['run_id'])
         verify_artifacts(p, r.get('artifacts'))
     for check in ('writer_confinement', 'worker_nested_edges', 'codemode_boundary', 'exact_restart_correlation',
-                  'hard_cutoff_and_process_exit', 'fresh_context_and_models'):
+                  'hard_cutoff_and_process_exit', 'fresh_context_and_models', 'okf_publication_recovery'):
         verify_artifacts(p, record.get('probes', {}).get(check))
     return {'operator': record['operator'], 'roles': roles, 'scope': 'operator observations with hash checks; not a sandbox'}
+
+
+def exec_lead(project, pi, args, env):
+    # Keep the lock across the exec into Pi; a second launcher cannot bind the
+    # same project until this host exits. Never delete/recreate the lock inode.
+    fd = os.open(project / '.research-lead.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ValueError('another Research Lead session owns this project') from exc
+        os.set_inheritable(fd, True)
+        os.execve(pi, args, env)
+    finally:
+        os.close(fd)
 
 
 def main():
@@ -174,12 +196,14 @@ def main():
         elif a.action == 'smoke-roster':
             print(json.dumps(verify_smoke(p, report), indent=2))
         else:
-            if a.enable_delegation:
-                verify_smoke(p, report)
             require('/' in a.model, 'select an exact provider/model')
             from ledger import check_invariants, load_state
-            problems = check_invariants(load_state(p / 'project-state.json'))
+            state = load_state(p / 'project-state.json')
+            problems = check_invariants(state)
             require(not problems, '; '.join(problems))
+            if a.enable_delegation:
+                consultations.require_policy(state, p)
+                verify_smoke(p, report)
             env = dict(os.environ, RESEARCH_LEAD_CONFIG=str(p / 'research-config.json'),
                        RESEARCH_LEAD_PID=str(os.getpid()), RESEARCH_DELEGATION='enabled' if a.enable_delegation else 'disabled')
             require(not env.get('PI_SUBAGENT_CHILD'), 'launcher is operator/Lead-only')
@@ -192,7 +216,7 @@ def main():
                          'subagent,subagents_enable,subagent_supervisor,bg_wait,contact_supervisor']
             if a.resume: args += ['--session', a.resume]
             if a.rpc: args += ['--mode', 'rpc']
-            os.execve(pi, args, env)
+            exec_lead(p, pi, args, env)
         return 0
     except (ValueError, OSError, KeyError, TypeError, AttributeError, sqlite3.Error, subprocess.TimeoutExpired) as exc:
         print(json.dumps({'refused': str(exc)}))
