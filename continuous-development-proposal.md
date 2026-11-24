@@ -1,9 +1,9 @@
-# Proposal: Research Lead as Continuous System Steward
+# Proposal: Research Lead as Continual System Steward
 
 ## Tracking metadata
 
 - **Created (UTC):** 2026-11-24T07:27:25Z
-- **Status:** Proposal for Director review; **not approved or implemented**.
+- **Status:** Approved by the Director for bounded implementation on 2026-11-24; **not implemented**. Approval does not authorize unbounded production self-modification, live/paid launches, or protected changes beyond their explicit approval/release path.
 - **Review:** Recommendations from two read-only `harness-architector` consultations have been incorporated below. The consultations reviewed the proposal and named design/audit documents; they did not inspect source code or run tests.
 - **Related design authority:** `blueprint-v1.md` v1.4. This proposal suggests an amendment (e.g. v1.5); it does not silently override the current blueprint.
 - **Related audit:** `blueprint-implementation-audit.md` (sequential implementation-coverage review).
@@ -227,16 +227,16 @@ After sufficient real usage accumulates, the Director and Lead can define a focu
 5. **Add protection as evidence warrants:** Extend tests/deployment controls based on observed risks; require explicit Director approval for protected changes and operator-controlled promotion until release enforcement is demonstrated.
 6. **Evaluate when evidence is sufficient:** Schedule formal system evaluation after runtime use produces an adequate evidence base and before making effectiveness claims.
 
-## Open decisions for the Director
+## Proposal-time open decisions and current disposition
 
-This proposal is not an implementation authorization. Before adding it to the authoritative blueprint, decide:
+These questions were open when the proposal was drafted. The bounded proposal has since been approved for implementation planning; its current canonical planning decisions are recorded in `.pi/plans/261124-continuous-development-stewardship/`.
 
-1. Which class A changes may the Lead merge without prior approval, and which require a human review even if policy-preserving?
-2. Which exact files/policies constitute the protected control plane (at minimum: role authority, tool/runtime permissions, gates/validators, budgets/stop authority, pool approvals, and research objectives/success criteria)?
-3. Which disposable/isolated environment and resource budget authorize the first real runtime development iterations?
-4. What independent review and rollback evidence is required for prompt/tool/orchestration changes?
-5. What accumulated evidence is sufficient to begin the later formal evaluation?
+1. **Class A release boundary and protected control plane:** Specified in the planning Blueprint/Specs; initial promotion remains operator-controlled, and protected changes retain explicit Director authorization plus separate promotion.
+2. **System-change records:** `CDEV-D02` was approved by the Director on 2026-11-24: extend the existing managed project ledger with a typed `system-change` record and guarded task closure/release linkage; create `change-and-progress-logs/continual-system-improvement/` under each bound project's governance hub. This path is specified in the planning set but not implemented.
+3. **First live runtime environment and resource budget:** Still unapproved/unverified; no live or paid activity is authorized by the proposal approval.
+4. **Independent review, release, and rollback evidence:** Specified in the planning Specs; the formal pre-execution review-or-proceed choice for that planning set remains unresolved.
+5. **Formal system-effectiveness evaluation:** Deferred until real runtime use provides a useful evidence base; required before broad effectiveness claims.
 
-## Recommendation
+## Approved direction
 
-Adopt the **bounded system-steward** model as a proposed next blueprint version. Let the Research Lead continually improve the system through observed, versioned, testable development work, while preserving Director-held authority over research goals/resources and independent approval for protected control-plane changes. This captures the practical benefit of runtime learning without making the agent the sole author, evaluator, and approver of its own authority.
+The Director approved the **bounded system-steward** model for implementation planning on 2026-11-24. Let the Research Lead continually improve the system through observed, versioned, testable development work, while preserving Director-held authority over research goals/resources and independent approval for protected control-plane changes. Promote the design to the authoritative blueprint only through the planning/review workflow; do not treat this proposal's approval as permission for live/paid activity or protected releases.
