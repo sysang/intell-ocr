@@ -45,6 +45,8 @@
 - [x] Document the deployment sequence, evidence needed for recovery, and the procedure for a missing Beads close. Documentation does not prove execution correlation.
 - [ ] Run and revise the incident runbook against the pinned live environment; capture a recovery report and objective exit evidence.
 
-**Local verification:** 30 research-ops Python tests, 14 existing OKF validator tests, 2 native Beads integration tests, strict TypeScript compilation, and diff whitespace checks passed. The Python suite includes a real Pi CLI/SDK exposure probe and real Git integration; execution and gate observations remain fixture data.
+**Local verification:** 30 research-ops Python tests, 14 existing OKF validator tests, 2 native Beads integration tests, and strict TypeScript compilation passed. TypeScript check: `.pi/node_modules/.bin/tsc --noEmit -p .pi/extensions/tests/tsconfig.json` with TypeScript 5.9.3 and `@types/node` 22.19.19. The Python suite includes a real Pi CLI/SDK exposure probe and real Git integration; execution and gate observations remain fixture data. A disposable TypeScript runtime smoke also confirmed workflow transpilation; the repository's launcher integration test still requires its absent `agent-collaboration/code-analysis` project fixtures.
 
-**Next:** (1) verify the operator's model and confinement setup in a disposable deployment, (2) perform the single-writer and pool launch/recovery probes, (3) run a Director-authorized research pilot and record scientific and resource outcomes.
+**Deployment constraint:** No `research-projects/` deployment/attestation or operator-approved confinement and pool profile was present in this checkout. No paid or live child runs were launched; deployment smoke, confinement probes, and Worker/pool pilots remain open.
+
+**Next:** (1) complete the operator-approved model and confinement probes in a disposable deployment, (2) perform the single-writer and approved read-only pool launch/recovery pilots, (3) run a Director-authorized research pilot and record scientific and resource outcomes.
