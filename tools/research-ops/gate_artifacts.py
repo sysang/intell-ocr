@@ -1,4 +1,4 @@
-"""Mechanical gate-package checks derived from Blueprint v1.4 §§5.2–5.6."""
+"""Mechanical checks for required phase-specific gate package artifacts."""
 import hashlib
 import json
 from pathlib import PurePosixPath

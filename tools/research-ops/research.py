@@ -76,7 +76,7 @@ def initialization(a):
     (hub / 'index.md').write_text('---\nokf_version: "0.2"\n---\n# Research governance\n\n'
         '- [Research charter](charter/research-charter.md)\n', encoding='utf-8')
     # `bd init` may seed generic tracker instructions. Research policy owns this project.
-    (p / 'AGENTS.md').write_text('# Research project\n\nUse the Research Lead contract and root blueprint. '
+    (p / 'AGENTS.md').write_text('# Research project\n\nUse the bound Research Lead Pi tools and local Research Ledger skill for governance. '
                                 'Beads is an operational backlog, not evidence authority.\n'
                                 'Use the managed OKF publication protocol for hub Markdown; writers edit only their staging copy.\n',
                                 encoding='utf-8')

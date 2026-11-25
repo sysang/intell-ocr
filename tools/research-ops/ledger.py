@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Research-project live-ledger CLI (blueprint §8.8, toolset §10.7).
+"""Research-project managed-ledger CLI and guarded local operation interface.
 
 Awareness as derivation, not recollection: every read of project-state.json
 goes through invariant checks, and status/next/progress/termination views are
