@@ -22,10 +22,10 @@ Authority: `blueprint-v1.md` v1.4 semantics unchanged. Python `tools/research-op
 - [x] Agree Lead-only gating pattern: reuse `beads-tools` (`RESEARCH_LEAD_CONFIG` + `RESEARCH_LEAD_PID` + host `MARKER` + `cwd==repo`, `model-only`, `sequential`); no child ledger tools. Initial implementation/tests are in Phase 1.
 - [x] Define child extension allowlist in [operation-inventory.md](.pi/skills/research-ledger/references/operation-inventory.md): all seven fixed roles `extensions: []`; worker alone gets model-alias + codegraph as `subagentOnlyExtensions`; others none; no child gets ledger tools. Apply/test the config in the integration phase.
 - [x] Agree progressive-disclosure layout: agent.md keeps lifecycle map + must-do rules; `.pi/skills/research-ledger/` carries runbooks; tool descriptions/snippets carry call-time rules. Agent rewrite/tool copy remains Phase 3 work.
-- [ ] Define parity bar: specify which of the 85 research-ops and 14 OKF validator behaviors are Lead-critical for this narrowed port, their TS test owners, deterministic fields/normalization, expected refusal behavior, required `tsc --noEmit` and Beads checks, and phase exit evidence. Do not imply nonported Python tests are ported.
+- [x] Define narrowed parity/test bar in [conformance-matrix.md](.pi/skills/research-ledger/references/conformance-matrix.md): TS parity only for selected Lead-critical logic; retained Python integration remains tested by Python; all 85 research-ops + 14 OKF suites stay mandatory; stable-vs-dynamic output normalization is explicit.
 - [x] Launcher inventory: mapped `init`/`preflight`/`smoke-roster`/`lead` responsibilities and retained them Python/operator-side initially in `operation-inventory.md`; no model-callable bootstrap, model selection, delegation enabling, or attestation.
 - [x] Capture JSON oracle vectors in `golden/canonical-json.json` and link source regression `test_ambiguous_and_nonfinite_json_is_refused`.
-- [ ] Specify TS parity behavior for duplicate-key rejection, non-finite rejection, canonical digest bytes, and `file_sha256`; prove Node matches Python before any receipt comparison.
+- [x] Specify TS parity behavior for duplicate-key rejection, non-finite rejection, canonical digest bytes, and `file_sha256` in `conformance-matrix.md`; proving Node matches Python is Phase 2 implementation work.
 - [x] Migration inventory: no live `research-projects/*/project-state.json` exists in this checkout; active and historical docs references are listed in `operation-inventory.md`.
 - [ ] Specify the legacy-snapshot read-only/reconcile migration path and conditional retention/deletion criteria before cutover.
 - [ ] Phase 0 exit review: ensure the complete operation/action inventory, port-now/stay-Python decisions, tool schemas/authority boundaries, launcher ownership, JSON parity requirements, migration constraints, and parity/test bar are coherent and recorded before Phase 1 resumes.
@@ -67,7 +67,7 @@ All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + 
 - [ ] Port `consultations` — split: (a) `configure`/`reserve`/`settle` with lane budgets; (b) `reuse` + `record-advice-check` + `record-consultation` with contradiction bar.
 - [ ] Port `knowledge` + `hub_publication` — split: (a) staged `begin`/`prepare`/`publish`/`abort` with resume-on-exact-bytes; (b) `check-okf-gate` with publication/snapshot/reader-sufficiency binding.
 - [ ] Port `director` — split: (a) `message`/`delivery`/`reply`/`file` with scope/option shapes; (b) `stop`/`stop-reconciliation` + `resolve-hold`/`suspend-held`/`open-hold` with resource/stop preconditions.
-- [ ] Port `checks.py` builders/validators and `research.py` init/preflight (lead launcher stays operator-side).
+- [ ] Port only `checks.py` `manifest`, `validate-verdict`, `verdict-still-covers`, and `freshness-flags`; keep OKF prechecks, pool-profile comparison, and the `research.py` launcher Python/operator-side as listed in the operation inventory.
 - [ ] Each module lands with ported unit tests; no module is declared done while Python and TS disagree on any fixture.
 
 ## Phase 3 — Prompt encoding with progressive disclosure
@@ -80,7 +80,7 @@ All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + 
 - [ ] Port test suites — split per file: `test_ledger` (structure/idempotency), `test_managed` by area (cycle/charging, task dispatch, gates/HOLD, consultations, OKF, Director, checkpoints), `test_pi_bootstrap` (launcher/binding), `test_snapshot_schema` (schema edge cases). Keep Python green until each area's TS counterpart passes.
 - [ ] Dual-run — split per module in strangler order (reads → task → gate → consult → OKF → Director); each module needs byte-identical receipts + refusal strings before the next starts. Document any intentional migration delta per module.
 - [ ] Migration plan for existing `project-state.json` files (read-only legacy + explicit reconcile, no silent rewrite).
-- [ ] Cutover precondition: ported suite covers all 85 research-ops + 14 OKF behaviors; `tsc` + Beads tests green; zero open parity gaps.
+- [ ] Cutover precondition: TS parity suite covers every selected port-now behavior and every retained Python-backed tool has wrapper integration coverage; all 85 Python research-ops + 14 Python OKF tests remain green; `tsc` + Beads adapter checks green; no open ported-slice parity gaps.
 - [ ] Cutover (conditional): delete only what TS provably supersedes. Retain any still-necessary Python script as a minimal subset; update references for removed parts only (`README.md`, `blueprint-v1.md`, audit/progress docs, `research-lead/agent.md`). Leave unrelated stewardship plans alone.
 - [ ] Commit per phase; never mix with stewardship/ui-verifier changes.
 
