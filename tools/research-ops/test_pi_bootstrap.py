@@ -13,6 +13,8 @@ import unittest
 REPO = Path(__file__).resolve().parents[2]
 NAMES = {'bd_create', 'bd_get', 'bd_query', 'bd_update', 'bd_close', 'bd_reopen',
          'bd_ready', 'bd_blocked', 'bd_dependency'}
+LEDGER_NAMES = {'ledger_read', 'ledger_task', 'ledger_gate', 'ledger_consult', 'ledger_okf',
+                'ledger_director', 'ledger_inner', 'checks'}
 
 
 class BootstrapTest(unittest.TestCase):
@@ -52,7 +54,8 @@ except ValueError as exc:
             repo = Path(tmp).resolve()
             cli = repo / 'tools/research-ops/research.py'
             shutil.copytree(REPO / 'tools/research-ops', cli.parent, ignore=shutil.ignore_patterns('__pycache__'))
-            for path in ('.pi/extensions/beads-tools', '.pi/agents'):
+            for path in ('.pi/extensions/beads-tools', '.pi/extensions/research-ledger-tools',
+                         '.pi/agents', '.pi/skills/research-ledger'):
                 shutil.copytree(REPO / path, repo / path, ignore=shutil.ignore_patterns('__pycache__'))
             shutil.copy2(REPO / '.pi/settings.json', repo / '.pi/settings.json')
             env = {k: os.environ[k] for k in ('PATH', 'LANG') if k in os.environ}
@@ -99,12 +102,14 @@ except ValueError as exc:
             probe.write_text('''import { writeFileSync } from 'node:fs';
 export default function(pi) {
   pi.on('session_start', (_e, ctx) => {
-    writeFileSync(process.env.PROBE_FILE, JSON.stringify({ tools: pi.getAllTools().filter(t => t.name.startsWith('bd_')),
+    writeFileSync(process.env.PROBE_FILE, JSON.stringify({ tools: pi.getAllTools().filter(t => t.name.startsWith('bd_') ||
+      ['ledger_read','ledger_task','ledger_gate','ledger_consult','ledger_okf','ledger_director','ledger_inner','checks'].includes(t.name)),
       prompt: ctx.getSystemPrompt().includes('research-lead-host:v1') }));
   });
 }
 ''')
             tool = repo / '.pi/extensions/beads-tools/index.ts'
+            ledger_tool = repo / '.pi/extensions/research-ledger-tools/index.ts'
             lead = repo / '.pi/agents/research-lead/agent.md'
             pi = shutil.which('pi')
             # Exec preserves the process ID, just like research.py lead. No model turn or remote call.
@@ -119,15 +124,15 @@ export default function(pi) {
                     if mode == 'spawned-child':
                         launch_env['PI_SUBAGENT_CHILD'] = '1'
                     p = subprocess.run([sys.executable, '-c', starter, pi, '--no-extensions', '--no-mcp',
-                                        '--no-session', '--mode', 'rpc', '--extension', str(tool), '--extension', str(probe),
+                                        '--no-session', '--mode', 'rpc', '--extension', str(tool), '--extension', str(ledger_tool), '--extension', str(probe),
                                         '--append-system-prompt', str(lead)],
                                        input='{"id":"test","type":"get_state"}\n', text=True, capture_output=True,
                                        cwd=repo, env=launch_env, timeout=20)
                     self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                     self.assertTrue(probe_file.exists(), p.stdout + p.stderr)
                     report = json.loads(probe_file.read_text())
-                    self.assertEqual({t['name'] for t in report['tools']}, NAMES if mode == 'host' else set(),
-                                     p.stdout + p.stderr)
+                    self.assertEqual({t['name'] for t in report['tools']},
+                                     NAMES | LEDGER_NAMES if mode == 'host' else set(), p.stdout + p.stderr)
                     self.assertTrue(all(t['exposure'] == 'model-only' for t in report['tools']))
                     self.assertTrue(report['prompt'])
             # Inspect the same runtime callable registry used by codemode, not just the declaration metadata.
@@ -136,7 +141,7 @@ export default function(pi) {
             sdk_probe.write_text(f'''import {{createAgentSession, DefaultResourceLoader, SessionManager}} from {json.dumps(sdk.as_uri())};
 process.env.RESEARCH_LEAD_PID = String(process.pid);
 const loader = new DefaultResourceLoader({{cwd: process.cwd(), agentDir: process.env.PI_CODING_AGENT_DIR,
-  noExtensions: true, additionalExtensionPaths: [{json.dumps(str(tool))}]}});
+  noExtensions: true, additionalExtensionPaths: [{json.dumps(str(tool))}, {json.dumps(str(ledger_tool))}]}});
 await loader.reload();
 const {{session}} = await createAgentSession({{resourceLoader: loader, sessionManager: SessionManager.inMemory()}});
 try {{
@@ -147,8 +152,8 @@ try {{
                                env=dict(env, RESEARCH_LEAD_CONFIG=str(project / 'research-config.json')))
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             tools = json.loads(p.stdout.splitlines()[-1])
-            self.assertTrue(NAMES <= set(tools['active']), tools)
-            self.assertFalse(NAMES & set(tools['callable']), tools)
+            self.assertTrue(NAMES | LEDGER_NAMES <= set(tools['active']), tools)
+            self.assertFalse((NAMES | LEDGER_NAMES) & set(tools['callable']), tools)
 
 
 if __name__ == '__main__':
