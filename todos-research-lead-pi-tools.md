@@ -66,18 +66,19 @@ All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + 
 - [x] Add load/call gate-negative tests and fake-Pi registration test; the pinned Pi SDK explicit-path test verifies all 8 tools for the bound host and none with child env. Auto-discovery is intentionally not used; `research.py` passes `--extension` explicitly.
 
 ## Phase 2 — Lead-critical port only (scope narrowed)
-- [ ] Triage `tools/research-ops` into Lead-critical (daily governance: status/next/apply/get, task readiness, gate review/route, consultations, OKF receipts, director records, checkpoints) vs keep-in-Python (reference helpers like `analyze.py`, launcher internals, test scaffolding). Port only the critical set.
-- [x] Implement the first canonical-JSON prototype: recursive duplicate-key/non-finite parser, Python `ensure_ascii`/code-point key sorting/float rendering, SHA-256, and 114 binary64 golden vectors. Correct the canonical golden to Python's default `ensure_ascii=True`.
-- [ ] Resolve the documented arbitrary-precision integer mismatch (current parser fails closed above JS safe range), integrate this module at managed reads/fingerprints, and prove all canonical vectors against Python before other logic ports. Blocks all later state-machine ports.
-- [ ] Strangler order: reads → task readiness → gate review/route → consultations → OKF receipts → Director. Each module lands only on byte-identical dual-run; refusal strings stay exact.
-- [ ] Port `snapshot_schema` + `project-state.schema.json` validation (duplicate-JSON-keys, non-finite, receipt bindings) — must leave files unchanged on failure.
+- [x] Triage captured in `operation-inventory.md`: port reads, task readiness/evidence, gates/checkpoints, inner attempts, consultations and pure checks; keep OKF publication, Director records/holds, pool comparison, check-close, launcher and reference analysis in Python initially.
+- [x] Implement canonical-JSON parser/serializer: duplicate-key/non-finite handling, Python `ensure_ascii`/code-point sorting/float format, SHA-256, binary64 and arbitrary-precision integer vectors; corrected canonical golden uses Python's default `ensure_ascii=True`.
+- [x] Integrate strict parsing at Python tool-response boundaries; prevent a BigInt from being silently coerced into Pi's JSON result.
+- [ ] Integrate canonical JSON at managed snapshot reads/writes and operation fingerprints; decide/implement BigInt-aware schema/business validation without coercion. Prove snapshot and operation digests before state-machine ports.
+- [ ] Strangler order: reads/schema/durable → task readiness/evidence → inner accounting → gates/checkpoints/readiness → consultation accounting → pure checks. OKF, Director and launcher remain Python-backed wrappers unless later evidence justifies expanding scope; ported slices need dual-run equality and refusal coverage.
+- [ ] Port `snapshot_schema` + `project-state.schema.json` validation; duplicate/non-finite refusal and failed-read/write no-mutation behavior must match.
 - [ ] Port `durable` (revision/op-id idempotency, replay, holds) + `evidence` tables.
 - [ ] Port `task_readiness` + `evidence` dispatch actions — split: (a) `assess-task` + `check-task`; (b) brief chain `issue`/`pin-use`/`mark-ready`/`reserve`; (c) run chain `attach-run`/`launch-unknown`/`prove-non-dispatch`/`hard-cutoff`/`observe-termination`/`record-no-result`/`reconcile-effects`; (d) outcome chain `result`/`decision`/`record-availability`/`drop-optional`. Each sub-chain lands with its own dual-run before the next starts.
 - [ ] Port `gates` + `readiness` + `gate_artifacts` + `gate_checkpoints` — split: (a) `gate-review` intake (manifest/role/Advisor-run binding); (b) `gate-route` legality + charges + stage moves; (c) `readiness`/`reuse-readiness` with baseline/log/diff proof; (d) `checkpoint-plan`/`checkpoint-gate-hold` Git ancestry + byte checks; (e) `withdraw-stale-review`/`resolve-gate-hold`/`return-to-implementation`.
 - [ ] Port `inner_attempts` (begin/settle, charge-once rule) as one unit.
 - [ ] Port `consultations` — split: (a) `configure`/`reserve`/`settle` with lane budgets; (b) `reuse` + `record-advice-check` + `record-consultation` with contradiction bar.
-- [ ] Port `knowledge` + `hub_publication` — split: (a) staged `begin`/`prepare`/`publish`/`abort` with resume-on-exact-bytes; (b) `check-okf-gate` with publication/snapshot/reader-sufficiency binding.
-- [ ] Port `director` — split: (a) `message`/`delivery`/`reply`/`file` with scope/option shapes; (b) `stop`/`stop-reconciliation` + `resolve-hold`/`suspend-held`/`open-hold` with resource/stop preconditions.
+- [ ] Keep `knowledge` + `hub_publication` Python implementations behind the Lead tool wrapper; test forwarding and retain OKF regressions. Do not port staged publication in this scope.
+- [ ] Keep `director` Python implementation behind the Lead tool wrapper; test forwarding and retain authority/stop regressions. Do not port that state machine in this scope.
 - [ ] Port only `checks.py` `manifest`, `validate-verdict`, `verdict-still-covers`, and `freshness-flags`; keep OKF prechecks, pool-profile comparison, and the `research.py` launcher Python/operator-side as listed in the operation inventory.
 - [ ] Each module lands with ported unit tests; no module is declared done while Python and TS disagree on any fixture.
 
