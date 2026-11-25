@@ -106,9 +106,10 @@ All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + 
 - [x] Commit each scoped slice separately in the root and `.pi` repositories; unrelated stewardship/UI-verifier work remains untouched.
 
 ## Phase 5 — Post-completion context-cost analysis + improvement
-- [ ] Measure live cost: system-prompt bytes, tool-spec bytes, per-turn tokens with the full tool surface loaded.
+- [x] Capture an offline source baseline: Research Lead prompt 22,621 UTF-8 bytes / 2,924 whitespace words; initial serialized registered tool metadata + TypeBox schemas were 185,811 bytes. Inspection showed `ledger_gate`'s `gate-review` and `reuse-readiness` variants repeated all six manifest schemas despite fixed gate/phase pairs. Tightening those schemas to the matching manifest types reduced the total to 118,731 bytes (−67,080, −36.1%) and `ledger_gate` to 49,702 bytes (−67,080, −57.4%). This is a serialization-size proxy, not provider-token accounting; per-turn tokens/live effects remain unmeasured.
+- [ ] Measure per-turn token cost with the full tool surface in an authorized live session; do not use paid/live calls without separate operator authorization.
 - [ ] Analyze whether tool-count/runbook size causes truncation, latency, or missed-guidance issues in real sessions.
-- [ ] Invest follow-up effort as needed: tighter progressive disclosure (skill refs vs inline), tool grouping/splitting, snippet trimming, lazy loading. Tracker stays open for this after cutover.
+- [x] Apply the offline, source-supported context optimization: narrow `ledger_gate` manifest schemas to exact gate/phase variants. Further grouping/snippet/lazy-loading changes await live truncation/latency evidence rather than speculative redesign.
 - [ ] Post-completion security assessment (deferred per your call): permission review of the new extension surface, Lead-only gating audit (PID/marker/cwd/child-env negatives), tool-exposure review. Build-time gating tests in Phase 1 still ship with the code; this item is the formal assessment afterwards.
 
 ## Concerns (why this is risky)
