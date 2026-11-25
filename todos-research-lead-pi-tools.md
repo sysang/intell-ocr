@@ -67,7 +67,8 @@ All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + 
 
 ## Phase 2 — Lead-critical port only (scope narrowed)
 - [ ] Triage `tools/research-ops` into Lead-critical (daily governance: status/next/apply/get, task readiness, gate review/route, consultations, OKF receipts, director records, checkpoints) vs keep-in-Python (reference helpers like `analyze.py`, launcher internals, test scaffolding). Port only the critical set.
-- [ ] Canonical-JSON module first: Python-compatible dumps/digest + duplicate-key + non-finite handling, proven against Python vectors. Blocks all later ports.
+- [x] Implement the first canonical-JSON prototype: recursive duplicate-key/non-finite parser, Python `ensure_ascii`/code-point key sorting/float rendering, SHA-256, and 114 binary64 golden vectors. Correct the canonical golden to Python's default `ensure_ascii=True`.
+- [ ] Resolve the documented arbitrary-precision integer mismatch (current parser fails closed above JS safe range), integrate this module at managed reads/fingerprints, and prove all canonical vectors against Python before other logic ports. Blocks all later state-machine ports.
 - [ ] Strangler order: reads → task readiness → gate review/route → consultations → OKF receipts → Director. Each module lands only on byte-identical dual-run; refusal strings stay exact.
 - [ ] Port `snapshot_schema` + `project-state.schema.json` validation (duplicate-JSON-keys, non-finite, receipt bindings) — must leave files unchanged on failure.
 - [ ] Port `durable` (revision/op-id idempotency, replay, holds) + `evidence` tables.
