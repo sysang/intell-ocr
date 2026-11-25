@@ -20,7 +20,7 @@ LEAD = REPO / '.pi/agents/research-lead/agent.md'
 TASK_TOOLS = REPO / '.pi/extensions/beads-tools/index.ts'
 LEDGER_TOOLS = REPO / '.pi/extensions/research-ledger-tools/index.ts'
 LEDGER_TOOL_FILES = [REPO / '.pi/extensions/research-ledger-tools' / name for name in
-                     ('index.ts', 'canonical-json.ts', 'gate.ts', 'cli.ts', 'process.ts', 'file-lock.ts', 'project-files.ts', 'snapshot.ts', 'store.ts', 'read-model.ts', 'schemas.ts')]
+                     ('index.ts', 'canonical-json.ts', 'gate.ts', 'cli.ts', 'process.ts', 'file-lock.ts', 'project-files.ts', 'snapshot.ts', 'store.ts', 'task-readiness.ts', 'read-model.ts', 'schemas.ts')]
 READ = {'read', 'grep', 'find', 'ls', 'structured_output'}
 ROLE_TOOL_CEILINGS = {
     'research-advisor': READ,

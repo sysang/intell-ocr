@@ -37,7 +37,7 @@ No task Delete or generic CLI passthrough. The extension uses a shell-free argum
 
 ## Ledger operations
 
-The Research Lead's Pi tools use the TypeScript state store for only four managed lifecycle writes (`start-scoping`, `record-blocker`, `objective`, `progress`) and selected read projections. These TS writes share Python's lock file, preserve Python-compatible fingerprints/snapshot formatting, and ask Python to validate each candidate before atomic publication; other writes and all direct CLI commands below remain Python-backed. This is an incremental parity slice, not a completed cutover or proof of deployment enforcement. See [the state-store port notes](../../.pi/skills/research-ledger/references/state-store-port.md).
+The Research Lead's Pi tools use the TypeScript state store for only four managed lifecycle writes (`start-scoping`, `record-blocker`, `objective`, `progress`), one `assess-task` evidence write, and selected read projections. These TS writes share Python's lock file, preserve Python-compatible fingerprints/snapshot formatting, and ask Python to validate each candidate before atomic publication; other writes and all direct CLI commands below remain Python-backed. This is an incremental parity slice, not a completed cutover or proof of deployment enforcement. See [the state-store port notes](../../.pi/skills/research-ledger/references/state-store-port.md).
 
 ```sh
 STATE=research-projects/pilot/project-state.json
