@@ -20,7 +20,7 @@ LEAD = REPO / '.pi/agents/research-lead/agent.md'
 TASK_TOOLS = REPO / '.pi/extensions/beads-tools/index.ts'
 LEDGER_TOOLS = REPO / '.pi/extensions/research-ledger-tools/index.ts'
 LEDGER_TOOL_FILES = [REPO / '.pi/extensions/research-ledger-tools' / name for name in
-                     ('index.ts', 'canonical-json.ts', 'gate.ts', 'cli.ts', 'process.ts', 'project-files.ts', 'snapshot.ts', 'read-model.ts', 'schemas.ts')]
+                     ('index.ts', 'canonical-json.ts', 'gate.ts', 'cli.ts', 'process.ts', 'file-lock.ts', 'project-files.ts', 'snapshot.ts', 'store.ts', 'read-model.ts', 'schemas.ts')]
 READ = {'read', 'grep', 'find', 'ls', 'structured_output'}
 ROLE_TOOL_CEILINGS = {
     'research-advisor': READ,
@@ -106,13 +106,14 @@ def fingerprint(paths):
 
 def preflight(p, pi, subagents):
     cfg = binding(p)
+    flock = executable('flock')
     require(command([pi, '--version']).splitlines()[-1] == '1.6.0', 'requires Pi 1.6.0')
     require(re.match(r'^bd version 0\.49\.6(?: |$)', command([cfg['bd'], '--version'])), 'requires Beads v0.49.6')
     pkg = subagents.resolve(strict=True)
     require(json.loads((pkg / 'package.json').read_text())['version'] == '0.89.2', 'requires pi-subagents 0.89.2')
     files = [LEAD, TASK_TOOLS, TASK_TOOLS.with_name('adapter.ts'), *LEDGER_TOOL_FILES,
              REPO / '.pi/settings.json', pkg / 'package.json',
-             pkg / 'index.js', Path(pi).resolve(), Path(cfg['bd']).resolve(), p / 'research-config.json',
+             pkg / 'index.js', Path(pi).resolve(), Path(cfg['bd']).resolve(), Path(flock).resolve(), p / 'research-config.json',
              REPO / '.pi/agents/okf-reader/validate_result.py',
              REPO / '.pi/agents/okf-writer/validate_okf.py',
              *(Path(__file__).with_name(name) for name in ('research.py', 'ledger.py', 'durable.py', 'gates.py',
@@ -125,7 +126,7 @@ def preflight(p, pi, subagents):
         definitions[name] = str(source)
         files.append(source)
     require(all(x.is_file() for x in files), 'missing required runtime files')
-    return {'pi': '1.6.0', 'pi_subagents': '0.89.2', 'beads': '0.49.6', 'backend': 'sqlite',
+    return {'pi': '1.6.0', 'pi_subagents': '0.89.2', 'beads': '0.49.6', 'flock': flock, 'backend': 'sqlite',
             'definitions': definitions, 'fingerprints': fingerprint(files), 'scope': 'installed files, not live resolution'}
 
 
