@@ -27,7 +27,7 @@ Authority: `blueprint-v1.md` v1.4 semantics unchanged. Python `tools/research-op
 - [x] Capture JSON oracle vectors in `golden/canonical-json.json` and link source regression `test_ambiguous_and_nonfinite_json_is_refused`.
 - [x] Specify TS parity behavior for duplicate-key rejection, non-finite rejection, canonical digest bytes, and `file_sha256` in `conformance-matrix.md`; proving Node matches Python is Phase 2 implementation work.
 - [x] Migration inventory: no live `research-projects/*/project-state.json` exists in this checkout; active and historical docs references are listed in `operation-inventory.md`.
-- [ ] Specify the legacy-snapshot read-only/reconcile migration path and conditional retention/deletion criteria before cutover.
+- [x] Specify legacy snapshots remain read-only; import only independently verified records via explicit migration receipts/pinned sources; if no migrator exists, retain Python; delete Python files only after proving all callers/dependencies/tests are superseded (`operation-inventory.md`).
 - [ ] Phase 0 exit review: ensure the complete operation/action inventory, port-now/stay-Python decisions, tool schemas/authority boundaries, launcher ownership, JSON parity requirements, migration constraints, and parity/test bar are coherent and recorded before Phase 1 resumes.
 
 ## Tool-surface design (detailed)
