@@ -49,7 +49,7 @@ Agreed hybrid: 8 grouped tools, each with a discriminated `action` union carryin
 All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + marker + cwd, refuse otherwise); `state` path resolved from the bound project (no free-floating paths); common envelope (`op-id`, `expected-revision`, `actor`, `reason` on writes; exact replay returns `replayed:true`). Thin-wrapper phase keeps Python as executor behind these same schemas; strangler phase swaps executors module by module with golden-vector dual-run.
 
 ## Phase 1 — Extension scaffold (thin wrappers, agreed sequence)
-**Status: PRELIMINARY SCAFFOLD ONLY — Phase 0 is not complete.** Existing commits preserve work but do not count as Phase 1 completion. Do not add more wrapper groups or begin logic port until Phase 0 exit criteria are met.
+**Status: IN PROGRESS — Phase 0 is complete.** The extension now has eight grouped action tools, strict structural payload schemas, bounded Python subprocess calls, and mapping/schema tests. This is still a wrapper, not a TS logic port or verified Pi-discovered runtime.
 - [x] Create `.pi/extensions/research-ledger-tools/` scaffold (`index.ts`, `gate.ts`, `cli.ts`, `process.ts`, `schemas.ts`), local `tsconfig`, and `node --test` harness. Strict TS checking passes against a local Pi API declaration stub; actual Pi auto-discovery remains unverified.
 - [x] Fix initial Python CLI action mappings (including positional `show`, lifecycle/evidence grouping, and separate checkpoint-plan preview); add pure mapping tests.
 - [x] Add shell-free bounded subprocess runner with stdin, timeout, abort, and combined output bounds; `node --test` covers argv/stdin/timeout/overflow/cancel.
