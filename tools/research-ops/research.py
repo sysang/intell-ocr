@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[2]
 LEAD = REPO / '.pi/agents/research-lead/agent.md'
 TASK_TOOLS = REPO / '.pi/extensions/beads-tools/index.ts'
 LEDGER_TOOLS = REPO / '.pi/extensions/research-ledger-tools/index.ts'
+LEDGER_SKILL = REPO / '.pi/skills/research-ledger'
 LEDGER_TOOL_FILES = [REPO / '.pi/extensions/research-ledger-tools' / name for name in
                      ('index.ts', 'canonical-json.ts', 'gate.ts', 'cli.ts', 'process.ts', 'file-lock.ts', 'project-files.ts', 'snapshot.ts', 'store.ts', 'task-readiness.ts', 'read-model.ts', 'schemas.ts')]
 READ = {'read', 'grep', 'find', 'ls', 'structured_output'}
@@ -111,7 +112,10 @@ def preflight(p, pi, subagents):
     require(re.match(r'^bd version 0\.49\.6(?: |$)', command([cfg['bd'], '--version'])), 'requires Beads v0.49.6')
     pkg = subagents.resolve(strict=True)
     require(json.loads((pkg / 'package.json').read_text())['version'] == '0.89.2', 'requires pi-subagents 0.89.2')
-    files = [LEAD, TASK_TOOLS, TASK_TOOLS.with_name('adapter.ts'), *LEDGER_TOOL_FILES,
+    skill_files = sorted(LEDGER_SKILL.rglob('*.md'))
+    require((LEDGER_SKILL / 'SKILL.md').is_file() and skill_files, 'missing Research Ledger skill/runbooks')
+    files = [LEAD, TASK_TOOLS, TASK_TOOLS.with_name('adapter.ts'), *LEDGER_TOOL_FILES, *skill_files,
+             Path(__file__).with_name('consultation-brief.md'),
              REPO / '.pi/settings.json', pkg / 'package.json',
              pkg / 'index.js', Path(pi).resolve(), Path(cfg['bd']).resolve(), Path(flock).resolve(), p / 'research-config.json',
              REPO / '.pi/agents/okf-reader/validate_result.py',

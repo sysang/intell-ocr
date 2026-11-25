@@ -79,7 +79,11 @@ except ValueError as exc:
                 lead_cli = [sys.executable, '-B', cli, '--subagents', installed]
                 opts = {'cwd': repo, 'env': env, 'text': True, 'capture_output': True, 'timeout': 30}
                 preflight = subprocess.run([*lead_cli, 'preflight', 'pilot'], check=True, **opts)
-                self.assertEqual(len(json.loads(preflight.stdout)['definitions']), 7)
+                report = json.loads(preflight.stdout)
+                self.assertEqual(len(report['definitions']), 7)
+                for runbook in (repo / '.pi/skills/research-ledger').rglob('*.md'):
+                    self.assertIn(str(runbook), report['fingerprints'])
+                self.assertIn(str(repo / 'tools/research-ops/consultation-brief.md'), report['fingerprints'])
                 blocked = subprocess.run([*lead_cli, 'lead', 'pilot', '--model', 'unused/local-fixture',
                                           '--enable-delegation'], **opts)
                 self.assertEqual(blocked.returncode, 1, blocked.stdout + blocked.stderr)
