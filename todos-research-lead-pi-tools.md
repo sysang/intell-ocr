@@ -50,8 +50,11 @@ All 8 share: `model-only` + `sequential` + `beads-tools` gating (config + PID + 
 
 ## Phase 1 — Extension scaffold (thin wrappers, agreed sequence)
 **Status: PRELIMINARY SCAFFOLD ONLY — Phase 0 is not complete.** Existing commits preserve work but do not count as Phase 1 completion. Do not add more wrapper groups or begin logic port until Phase 0 exit criteria are met.
-- [x] Create `.pi/extensions/research-ledger-tools/` scaffold (`index.ts`, `gate.ts`, `gating.test.ts`); initial `node --test` gating harness passes. Auto-discovery/strict TS project compilation still needs verification.
-- [ ] Thin-wrapper contract: expose each agreed group with exact per-action schemas and correct Python CLI mapping; exercise every action through subprocess fixtures. Current scaffold registers 8 groups but uses generic `input`/`argv`, has unverified action mappings, and is not parity-ready.
+- [x] Create `.pi/extensions/research-ledger-tools/` scaffold (`index.ts`, `gate.ts`, `cli.ts`, `process.ts`), local `tsconfig`, and `node --test` harness. Strict TS checking passes against a local API declaration stub; Pi auto-discovery/runtime registration remains unverified.
+- [x] Fix initial Python CLI action mappings (including positional `show`, lifecycle/evidence grouping, and separate checkpoint-plan preview); add pure mapping tests.
+- [x] Add shell-free bounded subprocess runner with stdin, timeout, abort, and combined output bounds; `node --test` covers argv/stdin/timeout/overflow/cancel.
+- [x] Replace generic write `input` and checks `argv` with discriminated per-action TypeBox schemas across read/task/gate/consult/OKF/Director/inner/checks. Schema tests reject extra fields and verify action-to-CLI group mapping.
+- [ ] Audit conditional-field combinations against Python validators, then exercise every registered action through subprocess fixtures. Schemas and mapping tests are not yet full operation parity.
 - [x] Capture normalized golden traces from the committed Python oracle `3ebe866` under `golden/`: eight existing `test_managed.py` scenarios (cycle charging, gate HOLD, reservation replay/restart, inner charge, wrong IDs, mandatory advice, protocol roles, Director tag) plus exact canonical JSON/hash/rejection vector. Timestamps, temp paths and time-dependent operation fingerprints are normalized; canonical JSON bytes/digest remain exact. Python sources unchanged.
 - [x] Add gating-negative tests (wrong/missing PID/config, child env, wrong cwd, missing marker → refused) for pure load/call predicates. Still verify extension registration/execution under Pi in the runtime harness.
 
